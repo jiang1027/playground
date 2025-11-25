@@ -256,13 +256,10 @@ async function analyzeNER(text) {
 - ORGANIZATION: 组织、机构、公司
 - THING: 具体事物、物品
 - EVENT: 事件
-- RELATIONSHIP: 人物之间的关系描述
 
 请以 JSON 数组格式返回结果，每个实体包含以下字段：
 - text: 实体文本
 - type: 实体类型（使用上述大写英文标识）
-- start: 在原文中的起始位置（字符索引，从0开始）
-- end: 在原文中的结束位置（不包含该位置的字符）
 
 只返回 JSON 数组，不要有其他解释文字。如果没有识别到任何实体，返回空数组 []。`;
 
@@ -312,15 +309,8 @@ ${chunk.text}`;
             const cleaned = stripThinkBlocks(rawContent);
             const entities = parseEntitiesFromResponse(cleaned);
             
-            // 调整实体位置偏移（因为是分段处理）
-            const adjustedEntities = entities.map(entity => ({
-                ...entity,
-                start: entity.start + chunk.start,
-                end: entity.end + chunk.start
-            }));
-            
             // 合并并去重
-            allEntities = allEntities.concat(adjustedEntities);
+            allEntities = allEntities.concat(entities);
             allEntities = deduplicateEntities(allEntities);
             
             if (chunks.length > 1) {
@@ -550,8 +540,8 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
     let buffer = '';
     let tokenCount = 0;  // 本地计数（备用）
 
-    let chunkIndex = 0;
     let cancelled = false;
+    let streamDone = false;  // 标记流是否完成
     
     // 性能优化：批量更新 DOM
     let pendingText = '';
@@ -560,11 +550,15 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
     let lastSpeedUpdate = 0;
     const SPEED_UPDATE_INTERVAL = 200;  // 每 200ms 更新一次速度
     
+    // 防止无限循环的安全措施
+    const MAX_ITERATIONS = 100000;  // 最大迭代次数
+    let totalIterations = 0;
+    
     // 获取原生 DOM 元素用于直接操作
     const streamBoxEl = $streamBox[0];
 
     try {
-        while (true) {
+        while (!streamDone) {
             const { done, value } = await reader.read();
             if (done) break;
 
@@ -577,16 +571,39 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
             const chunk = decoder.decode(value, { stream: true });
             buffer += chunk;
 
-            // 处理按 \n\n 分隔的 SSE 事件
+            // 处理按 \n\n 或 \n 分隔的 SSE 事件
+            // 注意：有些服务器用单个 \n 分隔
             let idx;
-            while ((idx = buffer.indexOf('\n\n')) !== -1) {
-                const line = buffer.slice(0, idx).trim();
-                buffer = buffer.slice(idx + 2);
+            let loopCount = 0;
+            const MAX_LOOP = 1000;  // 单次 chunk 最大处理事件数
+            
+            while ((idx = buffer.indexOf('\n')) !== -1 && loopCount < MAX_LOOP) {
+                loopCount++;
+                totalIterations++;
                 
-                if (!line || !line.startsWith('data:')) continue;
+                // 安全检查：防止无限循环
+                if (totalIterations > MAX_ITERATIONS) {
+                    logger.error('检测到异常循环，强制终止');
+                    streamDone = true;
+                    break;
+                }
+                
+                const line = buffer.slice(0, idx).trim();
+                buffer = buffer.slice(idx + 1);
+                
+                // 跳过空行
+                if (!line) continue;
+                
+                // 检查是否是 data: 开头
+                if (!line.startsWith('data:')) continue;
                 
                 const dataStr = line.slice(5).trim();
-                if (dataStr === '[DONE]') continue;
+                
+                // 检查流结束信号
+                if (dataStr === '[DONE]') {
+                    streamDone = true;
+                    break;
+                }
                 
                 try {
                     const json = JSON.parse(dataStr);
@@ -602,6 +619,10 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
                     const finishReason = json.choices?.[0]?.finish_reason;
                     if (finishReason) {
                         stats.finishReason = finishReason;
+                        // 如果收到 stop 或其他完成原因，标记流结束
+                        if (finishReason === 'stop' || finishReason === 'length') {
+                            // 不立即退出，因为后面可能还有 usage 信息
+                        }
                     }
 
                     const delta = json.choices?.[0]?.delta?.content;
@@ -638,12 +659,10 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
                         }
                     }
                 } catch (e) {
-                    // 非 JSON 行，原样输出
-                    accumulated += dataStr + '\n';
-                    pendingText += dataStr + '\n';
+                    // JSON 解析失败，记录但继续
+                    console.warn('[SSE] JSON parse error:', e.message, 'data:', dataStr.slice(0, 100));
                 }
             }
-            chunkIndex++;
         }
         
         // 刷新剩余的待输出文本
@@ -748,9 +767,7 @@ function parseEntitiesFromResponse(responseText) {
 
         // 验证每个实体的格式
         return entities.filter(entity => {
-            const valid = entity.text && entity.type &&
-                typeof entity.start === 'number' &&
-                typeof entity.end === 'number';
+            const valid = entity.text && entity.type;
             if (!valid) {
                 logger.warn(`跳过无效实体: ${JSON.stringify(entity)}`);
             }
@@ -774,15 +791,14 @@ function displayEntities(entities, originalText) {
 
     // 按类型分组
     const grouped = {};
-    const typeOrder = ['PERSON', 'ORGANIZATION', 'LOCATION', 'TIME', 'EVENT', 'THING', 'RELATIONSHIP'];
+    const typeOrder = ['PERSON', 'ORGANIZATION', 'LOCATION', 'TIME', 'EVENT', 'THING'];
     const typeNames = {
         'PERSON': '👤 人物',
         'ORGANIZATION': '🏢 组织/机构',
         'LOCATION': '📍 地点',
         'TIME': '🕐 时间',
         'EVENT': '📅 事件',
-        'THING': '📦 事物',
-        'RELATIONSHIP': '🔗 关系'
+        'THING': '📦 事物'
     };
 
     // 分组
@@ -814,8 +830,7 @@ function displayEntities(entities, originalText) {
         grouped[type].forEach(entity => {
             const $span = $('<span>')
                 .addClass(`entity entity-${entity.type}`)
-                .text(entity.text)
-                .attr('title', `位置: ${entity.start}-${entity.end}`);
+                .text(entity.text);
             $content.append($span);
         });
 
