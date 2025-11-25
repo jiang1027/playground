@@ -1,0 +1,21 @@
+{
+  "name": "playwright",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "description": "",
+  "main": "src/nhk-news.js",
+  "scripts": {
+    "nhk-news": "node src/nhk-news.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.5.2"
+  },
+  "dependencies": {
+    "openai": "^5.22.1",
+    "turndown": "^7.2.1"
+  }
+}

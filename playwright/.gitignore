@@ -1,0 +1,6 @@
+
+# Playwright
+node_modules/
+/test-results/
+/chrome-user-data
+/playwright/.cache/

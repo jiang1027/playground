@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分词可视化器</title>
+    <style>
+        .token {
+            display: inline-block;
+            padding: 4px 8px;
+            margin: 2px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f0f0f0;
+            font-family: monospace;
+        }
+
+        .token:hover {
+            background-color: #e0e0e0;
+        }
+
+        .token.partial {
+            background-color: #ffe0e0;
+            color: #666;
+        }
+
+        .token.space {
+            background-color: #e0f0ff;
+        }
+
+        .token.merged {
+            background-color: #fff0e0;
+            border-color: #ff9900;
+        }
+
+        #container {
+            padding: 10px;
+        }
+
+        #info {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <h2>分词可视化</h2>
+        <div style="margin-bottom: 20px;">
+            <textarea id="input-text" rows="5"
+                style="width: 100%; box-sizing: border-box; padding: 8px; font-family: monospace;">Hello World! 这里的每一个色块代表一个独立的 Token。</textarea>
+        </div>
+        <button id="btn-analyze" style="padding: 8px 16px; cursor: pointer; font-weight: bold;" disabled>开始对比分析</button>
+        <div style="margin-top: 20px; height: 350px;">
+            <canvas id="comparison-chart"></canvas>
+        </div>
+        <!-- 隐藏旧的显示区域，或者留作他用 -->
+        <div id="info" style="display:none;"></div>
+        <div id="tokens-display" style="display:none;"></div>
+        <div style="margin-top: 10px;">
+            <div id="model-status-panel" style="margin-bottom: 10px; padding: 10px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; max-height: 150px; overflow-y: auto; font-size: 12px;">
+                <strong>模型加载状态:</strong>
+                <ul id="model-status-list" style="list-style: none; padding-left: 0; margin-top: 5px;"></ul>
+            </div>
+        </div>
+    </div>
+    <script type="module">
+        import { getEncoding, encodingForModel } from "https://esm.sh/js-tiktoken";
+        import $ from "https://esm.sh/jquery";
+        import { AutoTokenizer, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+        import Chart from "https://esm.sh/chart.js/auto";
+
+        // 禁用本地模型加载，强制使用 CDN
+        env.allowLocalModels = false;
+
+        // 模型定义
+        const MODEL_GROUPS = [
+            {
+                label: "Encodings",
+                models: [
+                    { name: "o200k_base (GPT-4o)", value: "o200k_base", type: "tiktoken" },
+                    { name: "cl100k_base (GPT-4, GPT-3.5)", value: "cl100k_base", type: "tiktoken" },
+                    { name: "p50k_base (Codex)", value: "p50k_base", type: "tiktoken" },
+                    { name: "r50k_base (GPT-3)", value: "r50k_base", type: "tiktoken" }
+                ]
+            },
+            {
+                label: "OpenAI Models",
+                models: [
+                    { name: "gpt-4o", value: "gpt-4o", type: "tiktoken" },
+                    { name: "gpt-4", value: "gpt-4", type: "tiktoken" },
+                    { name: "gpt-3.5-turbo", value: "gpt-3.5-turbo", type: "tiktoken" },
+                    { name: "text-davinci-003", value: "text-davinci-003", type: "tiktoken" }
+                ]
+            },
+            {
+                label: "Hugging Face / Open Source (Transformers.js)",
+                models: [
+                    { name: "BERT (bert-base-uncased)", value: "Xenova/bert-base-uncased", type: "transformers" },
+                    { name: "GPT-2", value: "Xenova/gpt2", type: "transformers" },
+                    { name: "Llama 3", value: "Xenova/llama3-tokenizer", type: "transformers" },
+                    { name: "Gemma", value: "Xenova/gemma-tokenizer", type: "transformers" },
+                    { name: "Mistral", value: "Xenova/mistral-tokenizer", type: "transformers" },
+                    { name: "DeepSeek Coder", value: "Xenova/deepseek-coder-1.3b-base", type: "transformers" },
+                    { name: "T5", value: "Xenova/t5-base", type: "transformers" },
+                    { name: "RoBERTa", value: "Xenova/roberta-base", type: "transformers" },
+                    { name: "XLM-RoBERTa (Multilingual)", value: "Xenova/xlm-roberta-base", type: "transformers" }
+                ]
+            }
+        ];
+
+        const modelCache = {}; // 存储已加载的 tokenizer 实例
+        let chartInstance = null;
+
+        // 更新状态列表 UI
+        function updateStatus(value, status, message = "") {
+            const $list = $('#model-status-list');
+            let $item = $list.find(`li[data-value="${value}"]`);
+            
+            let color = '#666';
+            let icon = '⏳';
+            
+            if (status === 'loading') {
+                color = '#0066cc';
+                icon = '⏳';
+            } else if (status === 'success') {
+                color = '#00aa00';
+                icon = '✅';
+            } else if (status === 'error') {
+                color = '#cc0000';
+                icon = '❌';
+            }
+
+            const text = `${icon} ${value}: ${status === 'loading' ? '加载中...' : (status === 'success' ? '就绪' : '失败 - ' + message)}`;
+            
+            if ($item.length === 0) {
+                $item = $(`<li data-value="${value}" style="margin-bottom: 2px;"></li>`);
+                $list.append($item);
+            }
+            
+            $item.html(`<span style="color: ${color}">${text}</span>`);
+        }
+
+        // 初始化 UI (仅初始化状态列表)
+        function initUI() {
+            MODEL_GROUPS.forEach(group => {
+                group.models.forEach(model => {
+                    // 初始化状态条目
+                    updateStatus(model.value, 'pending', '等待加载');
+                });
+            });
+        }
+
+        // 加载单个模型
+        async function loadModel(modelInfo) {
+            const { value, type } = modelInfo;
+            
+            if (modelCache[value]) return modelCache[value];
+
+            updateStatus(value, 'loading');
+            
+            try {
+                let tokenizer;
+                if (type === 'transformers') {
+                    tokenizer = await AutoTokenizer.from_pretrained(value);
+                } else {
+                    // Tiktoken
+                    try {
+                        tokenizer = getEncoding(value);
+                    } catch (e) {
+                        tokenizer = encodingForModel(value);
+                    }
+                }
+                
+                modelCache[value] = { tokenizer, type };
+                updateStatus(value, 'success');
+                return { tokenizer, type };
+            } catch (e) {
+                console.error(`Failed to load ${value}:`, e);
+                updateStatus(value, 'error', e.message);
+                return null;
+            }
+        }
+
+        // 批量加载所有模型
+        async function loadAllModels() {
+            const $btn = $('#btn-analyze');
+            
+            // 扁平化模型列表
+            const allModels = MODEL_GROUPS.flatMap(g => g.models);
+            
+            // 优先加载默认模型 (cl100k_base) 以便用户能尽快开始使用
+            const defaultModel = allModels.find(m => m.value === 'cl100k_base');
+            if (defaultModel) {
+                await loadModel(defaultModel);
+                // 默认模型加载完就启用按钮
+                $btn.prop('disabled', false);
+            }
+
+            // 剩下的模型并发加载
+            
+            // 1. 加载所有 Tiktoken 模型
+            const tiktokenModels = allModels.filter(m => m.type === 'tiktoken' && m.value !== 'cl100k_base');
+            for (const m of tiktokenModels) {
+                loadModel(m); 
+            }
+
+            // 2. 串行加载 Transformers 模型
+            const transformersModels = allModels.filter(m => m.type === 'transformers');
+            for (const m of transformersModels) {
+                await loadModel(m);
+            }
+        }
+
+        async function analyze() {
+            const sentence = $('#input-text').val();
+            const results = [];
+            const allModels = MODEL_GROUPS.flatMap(g => g.models);
+
+            // 遍历所有已加载的模型进行分析
+            for (const modelInfo of allModels) {
+                const cached = modelCache[modelInfo.value];
+                if (!cached) continue; // 跳过未加载的模型
+
+                const { tokenizer, type } = cached;
+                let tokenCount = 0;
+                const startTime = performance.now();
+
+                try {
+                    if (type === 'transformers') {
+                        const output = await tokenizer(sentence);
+                        tokenCount = output.input_ids.data.length;
+                    } else {
+                        // Tiktoken
+                        const tokens = tokenizer.encode(sentence);
+                        tokenCount = tokens.length;
+                    }
+                    const endTime = performance.now();
+                    
+                    results.push({
+                        name: modelInfo.name,
+                        tokenCount: tokenCount,
+                        time: endTime - startTime
+                    });
+                } catch (e) {
+                    console.error(`Error analyzing with ${modelInfo.name}:`, e);
+                }
+            }
+
+            renderChart(results);
+        }
+
+        function renderChart(results) {
+            const ctx = document.getElementById('comparison-chart');
+            
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: results.map(r => r.name),
+                    datasets: [
+                        {
+                            label: 'Token 数量',
+                            data: results.map(r => r.tokenCount),
+                            yAxisID: 'y',
+                            backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: '耗时 (ms)',
+                            data: results.map(r => r.time),
+                            yAxisID: 'y1',
+                            backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: 'Token 数量' }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: { display: true, text: '耗时 (ms)' },
+                            grid: {
+                                drawOnChartArea: false
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '各分词器性能对比'
+                        }
+                    }
+                }
+            });
+        }
+
+        $(document).ready(function () {
+            initUI();
+            
+            $('#btn-analyze').on('click', analyze);
+            
+            // 开始加载
+            loadAllModels();
+        });
+    </script>
+</body>
+
+</html>

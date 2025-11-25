@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tiktoken 分词可视化器</title>
+    <style>
+        .token {
+            display: inline-block;
+            padding: 4px 8px;
+            margin: 2px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f0f0f0;
+            font-family: monospace;
+        }
+        .token:hover {
+            background-color: #e0e0e0;
+        }
+        .token.partial {
+            background-color: #ffe0e0;
+            color: #666;
+        }
+        .token.space {
+            background-color: #e0f0ff;
+        }
+        .token.merged {
+            background-color: #fff0e0;
+            border-color: #ff9900;
+        }
+        #container {
+            padding: 20px;
+        }
+        #info {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <h2>Tiktoken 分词可视化</h2>
+        <div id="info"></div>
+        <div id="tokens-display"></div>
+    </div>
+    <script type="module">
+        import { getEncoding } from "https://esm.sh/js-tiktoken";
+
+        const encoding = getEncoding("cl100k_base");
+        const sentence = `Hello World! 这里的每一个色块代表一个独立的 Token。`;
+        const tokens = encoding.encode(sentence);
+        
+        console.log('原始文本:', sentence);
+        console.log('Token IDs:', tokens);
+        
+        // 显示信息
+        const info = document.getElementById('info');
+        info.innerHTML = `
+            <strong>原始文本:</strong> ${sentence}<br>
+            <strong>Token 数量:</strong> ${tokens.length}<br>
+            <strong>重建文本:</strong> ${encoding.decode(tokens)}
+        `;
+        
+        const display = document.getElementById('tokens-display');
+        
+        // --- 核心修复开始 ---
+        
+        let pendingTokens = [];
+        let startIndex = 0;
+
+        for (let i = 0; i < tokens.length; i++) {
+            const currentToken = tokens[i];
+            pendingTokens.push(currentToken);
+            
+            const afterText = encoding.decode(tokens.slice(0, i + 1));
+            const isLastToken = i === tokens.length - 1;
+            
+            // 如果当前解码出的文本以乱码结尾，且不是最后一个token，则认为是未完成的字符，继续累积
+            if (afterText.endsWith('\uFFFD') && !isLastToken) {
+                continue;
+            }
+            
+            // 到了这里，说明要么是完整的字符，要么是不得不显示的最后部分
+            
+            // 计算当前这一组 tokens 对应的文本
+            // 我们利用 startIndex 来获取“这一组之前”的文本长度
+            const beforeText = encoding.decode(tokens.slice(0, startIndex));
+            let groupText = afterText.substring(beforeText.length);
+            
+            // 创建显示元素
+            const span = document.createElement('span');
+            span.className = 'token';
+            
+            let displayText = groupText;
+            
+            // 如果包含乱码，标记颜色，并移除乱码符号以便显示
+            if (groupText.includes('\uFFFD')) {
+                span.className += ' partial';
+                displayText = groupText.replace(/\uFFFD/g, '');
+            }
+            
+            // 处理特殊字符显示
+            if (displayText === '') {
+                displayText = `∅`;
+                if (!span.className.includes('partial')) span.className += ' partial';
+            } else if (displayText === ' ') {
+                displayText = '␣';
+                span.className += ' space';
+            } else if (displayText === '\n') {
+                displayText = '↵';
+            } else if (displayText === '\t') {
+                displayText = '⇥';
+            }
+            
+            span.textContent = displayText;
+            span.title = `Tokens: [${pendingTokens.join(', ')}]\nText: "${groupText}"`;
+            
+            // 添加所有累积的 ID 下标
+            pendingTokens.forEach(token => {
+                const sub = document.createElement('sub');
+                sub.textContent = `[${token}]`;
+                sub.style.fontSize = '10px';
+                sub.style.color = '#666';
+                sub.style.marginLeft = '2px';
+                span.appendChild(sub);
+            });
+            
+            display.appendChild(span);
+            
+            // 重置
+            pendingTokens = [];
+            startIndex = i + 1;
+        }
+        // --- 核心修复结束 ---
+        
+        // 验证解码
+        const reconstructed = encoding.decode(tokens);
+        console.log('重建文本是否匹配:', reconstructed === sentence);
+    </script>
+</body>
+</html>

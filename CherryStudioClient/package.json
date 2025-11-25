@@ -1,0 +1,24 @@
+{
+  "name": "cherry-studio-playwright-automation",
+  "version": "1.0.0",
+  "description": "使用 Playwright 自动化操作 Electron 应用",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "install:browsers": "playwright install"
+  },
+  "keywords": [
+    "playwright",
+    "electron",
+    "automation",
+    "testing"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "playwright": "^1.40.0"
+  }
+}

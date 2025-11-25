@@ -1,0 +1,18 @@
+div:has(> [data-testid="super-upsell-UpsellCardRenderProperties"]) {
+	display: none !important;
+}
+
+/* 
+div:has(> div[data-testid="tweetText"]) {
+	backface-visibility: hidden;
+	transform: perspective(600px) rotateY(0deg);
+	transform-origin: center;
+	transform-style: preserve-3d;
+	transition: transform 1.5s ease-in-out;
+}
+
+div:has(> div[data-testid="tweetText"]):hover {
+	transform: perspective(600px) rotateY(180deg);
+} 
+*/
+

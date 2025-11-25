@@ -1,0 +1,70 @@
+/* 预览框架样式 */
+
+.floating-window {
+    padding: 5px;
+    position: fixed;
+    top: 0;
+    right: -33.33vw; /* 初始位置在屏幕右侧外 */
+    width: 33.33vw; /* 视口宽度的1/3 */
+    height: 100vh;   /* 视口高度的100% */
+    z-index: 9999;
+    background-color: white;
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    font-family: Arial, sans-serif;
+    transition: right 0.3s ease-in-out; /* 添加滑动动画 */
+    overflow: hidden; /* 防止内容溢出影响滑动 */
+    box-sizing: border-box; /* 确保 padding 不影响宽度计算 */
+}
+
+.floating-window.show {
+    right: 0; /* 滑入到正常位置 */
+}
+
+.toolbar {
+    width: 100%;
+    height: 40px;
+    background-color: #f0f0f0;
+    border-bottom: 1px solid #ccc;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    box-sizing: border-box;
+    flex-shrink: 0; /* 防止工具栏被压缩 */
+}
+
+.toolbar .title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #333;
+}
+
+.close-button {
+    width: 30px;
+    height: 30px;
+    background-color: #ff4444;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-button:hover {
+    background-color: #ff6666;
+}
+
+.preview-iframe {
+    width: 100%;
+    height: calc(100% - 40px); /* 减去工具栏高度 */
+    border: none;
+    background-color: white;
+    flex: 1; /* 占据剩余空间 */
+    overflow: auto; /* iframe 内部处理滚动 */
+}

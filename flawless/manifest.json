@@ -1,0 +1,40 @@
+{
+    "manifest_version": 3,
+    "name": "Disagree Trigger",
+    "version": "1.0.0",
+    "description": "Notify the content script when the user clicks the Disagree button in the popup.",
+    "action": {
+        "default_title": "Disagree",
+        "default_popup": "popup.html"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "permissions": [
+        "tabs",
+        "storage"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "lib/jquery-3.7.1.js",
+                "content.js"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "https://x.com/home*"
+            ],
+            "css": [
+                "styles/x-hide-super-upsell.css"
+            ]
+        }
+    ]
+}
