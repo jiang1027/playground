@@ -10,7 +10,7 @@ body {
 }
 
 #container {
-    max-width: 1000px;
+    max-width: 1200px;
     margin: 0 auto;
     background: white;
     padding: 20px;
@@ -18,9 +18,151 @@ body {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
+/* 两列布局 */
+.main-layout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+.left-column {
+    flex: 0 1 600px;
+    min-width: 0;
+}
+
+.right-column {
+    width: 600px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 100px);
+    display: flex;
+    flex-direction: column;
+}
+
+.right-column .log-section {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    margin-top: 0;
+}
+
+.right-column #stream-output {
+    height: 200px;
+    flex-shrink: 0;
+}
+
+.right-column #log-container {
+    flex: 1;
+    min-height: 200px;
+    max-height: none;
+    height: auto;
+}
+
 h2 {
     margin-top: 0;
     color: #333;
+}
+
+/* API 配置面板 */
+.config-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+}
+
+.config-section h3 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: #495057;
+}
+
+.config-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 10px;
+}
+
+.config-row:last-child {
+    margin-bottom: 0;
+}
+
+.config-row label {
+    min-width: 80px;
+    font-size: 13px;
+    color: #666;
+}
+
+.config-row input[type="text"] {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 13px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.config-row input[type="text"]:focus {
+    outline: none;
+    border-color: #4a90d9;
+}
+
+.config-row select {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 13px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+}
+
+.config-row select:focus {
+    outline: none;
+    border-color: #4a90d9;
+}
+
+#btn-refresh-models {
+    padding: 6px 12px;
+    font-size: 13px;
+    color: #666;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#btn-refresh-models:hover {
+    background-color: #f0f0f0;
+    border-color: #ccc;
+}
+
+#btn-refresh-models:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.status-indicator {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.status-indicator.loading {
+    color: #856404;
+    background-color: #fff3cd;
+}
+
+.status-indicator.success {
+    color: #155724;
+    background-color: #d4edda;
+}
+
+.status-indicator.error {
+    color: #721c24;
+    background-color: #f8d7da;
 }
 
 .input-section {
@@ -85,12 +227,33 @@ h2 {
     background-color: #e0e0e0;
 }
 
+#btn-cancel-analyze {
+    padding: 10px 20px;
+    font-size: 14px;
+    color: white;
+    background-color: #d9534f;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: 10px;
+    transition: background-color 0.2s;
+}
+
+#btn-cancel-analyze:hover {
+    background-color: #c9302c;
+}
+
+#btn-cancel-analyze:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
 .log-section {
     margin-top: 20px;
 }
 
 .log-section h3 {
-    margin: 0 0 10px 0;
+    margin: 15px 0 10px 0;
     color: #555;
     font-size: 14px;
 }
@@ -194,4 +357,86 @@ h2 {
 .entity-RELATIONSHIP {
     background-color: #b2ebf2;
     border: 1px solid #80deea;
+}
+
+.entity-EVENT {
+    background-color: #fff9c4;
+    border: 1px solid #fff176;
+}
+
+/* 实体分组样式 */
+.entity-group {
+    margin-bottom: 12px;
+    padding: 10px;
+    background-color: #fafafa;
+    border-radius: 6px;
+    border: 1px solid #eee;
+}
+
+.entity-group:last-child {
+    margin-bottom: 0;
+}
+
+.entity-group-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.entity-group-content {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* 统计信息面板 */
+#stats-panel {
+    margin-top: 15px;
+    padding: 12px;
+    border: 1px solid #4a90d9;
+    background: #f0f7ff;
+    border-radius: 6px;
+}
+
+#stats-panel h3 {
+    margin: 0 0 10px 0;
+    color: #2c5aa0;
+    font-size: 14px;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    font-size: 13px;
+}
+
+.stat-item {
+    padding: 4px 0;
+}
+
+.stat-label {
+    color: #555;
+}
+
+.stat-item span:last-child {
+    font-weight: 500;
+    color: #333;
+}
+
+/* 原始模型输出 */
+#stream-output {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px dashed #ccc;
+    background: #fcfcfc;
+    white-space: pre-wrap;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 12px;
+    max-height: 300px;
+    overflow: auto;
+    border-radius: 4px;
 }
