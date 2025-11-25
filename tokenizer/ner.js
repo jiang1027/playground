@@ -177,7 +177,7 @@ $(document).ready(function () {
     logger.info('请输入文本后点击"开始分析"按钮');
 
     // 自动尝试加载模型列表
-    refreshModelList();
+    // refreshModelList();
 });
 
 // 刷新模型列表
@@ -417,31 +417,29 @@ function deduplicateEntities(entities) {
     return Array.from(seen.values());
 }
 
-// 普通调用 OpenAI 兼容 API (非流式)
-async function callOpenAIAPI(systemPrompt, userPrompt) {
+// 流式调用 OpenAI 兼容 API (使用 fetch)
+async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
     const url = `${API_CONFIG.baseUrl}/chat/completions`;
-    logger.info(`请求地址: ${url}`);
+    logger.info(`(stream) 请求地址: ${url}`);
 
-    // 创建显示容器
-    let $streamBox = $('#stream-output');
-    if ($streamBox.length === 0) {
-        $streamBox = $('<div id="stream-output" style="margin-top:10px;padding:8px;border:1px dashed #ccc;background:#fcfcfc;white-space:pre-wrap;font-size:12px;max-height:300px;overflow:auto;"></div>');
-        $resultSection.append($('<h3 style="margin-top:15px;">原始模型输出</h3>'));
-        $resultSection.append($streamBox);
-    } else {
-        $streamBox.empty();
-    }
+    // 创建 AbortController 用于取消请求
+    currentAbortController = new AbortController();
 
-    const requestBody = {
-        model: API_CONFIG.model,
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.1,
-        // max_tokens: 32768,
-        stream: false
+    // 统计信息
+    const stats = {
+        startTime: Date.now(),
+        firstTokenTime: null,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        finishReason: ''
     };
+
+    // 不重置统计显示，保留上次的数据
+
+    // 清空输出容器
+    const $streamBox = $('#stream-output').empty();
+    const streamBoxEl = $streamBox[0];
 
     const response = await fetch(url, {
         method: 'POST',
@@ -449,7 +447,17 @@ async function callOpenAIAPI(systemPrompt, userPrompt) {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${API_CONFIG.apiKey}`
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify({
+            model: API_CONFIG.model,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.1,
+            stream: true,
+            stream_options: { include_usage: true }
+        }),
+        signal: currentAbortController.signal
     });
 
     if (!response.ok) {
@@ -457,245 +465,91 @@ async function callOpenAIAPI(systemPrompt, userPrompt) {
         throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
 
-    const data = await response.json();
-
-    // 调试：输出完整响应
-    console.log('[FULL RESPONSE]', data);
-    console.log('[RAW CONTENT]', data.choices?.[0]?.message?.content);
-
-    // 检查是否被截断
-    const finishReason = data.choices?.[0]?.finish_reason;
-    if (finishReason === 'length') {
-        logger.warn('⚠️ 输出被截断！模型达到了 max_tokens 限制');
-    } else {
-        logger.info(`完成原因: ${finishReason}`);
-    }
-
-    const content = data.choices?.[0]?.message?.content || '';
-
-    // 显示原始内容（使用 text() 确保标签不被解析）
-    $streamBox.text(content);
-
-    logger.info(`响应完成，内容长度: ${content.length}`);
-
-    return content;
-}
-
-// 流式调用 OpenAI 兼容 API (SSE)
-async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
-    const url = `${API_CONFIG.baseUrl}/chat/completions`;
-    logger.info(`(stream) 请求地址: ${url}`);
-
-    // 创建 AbortController 用于取消请求
-    currentAbortController = new AbortController();
-    const signal = currentAbortController.signal;
-
-    // 统计信息
-    const stats = {
-        startTime: Date.now(),
-        firstTokenTime: null,
-        endTime: null,
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        finishReason: ''
-    };
-
-    // 重置统计显示
-    $('#stat-ttft, #stat-total-time, #stat-prompt-tokens, #stat-completion-tokens, #stat-total-tokens, #stat-speed, #stat-finish-reason').text('计算中...').css('color', '');
-
-    // 清空输出容器
-    const $streamBox = $('#stream-output').empty();
-
-    const requestBody = {
-        model: API_CONFIG.model,
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.1,
-        // 不设置 max_tokens，让模型使用其最大上下文长度
-        stream: true,
-        stream_options: { include_usage: true }  // 请求返回 token 统计
-    };
-
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_CONFIG.apiKey}`
-        },
-        body: JSON.stringify(requestBody),
-        signal: signal  // 添加取消信号
-    });
-
-    if (!response.ok || !response.body) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-
+    // 流式读取
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
-    let accumulated = '';
     let buffer = '';
-    let tokenCount = 0;  // 本地计数（备用）
+    let accumulated = '';
+    let tokenCount = 0;
+    let lastSpeedUpdate = 0;  // 上次更新速度的时间
 
-    let cancelled = false;
-    let streamDone = false;  // 标记流是否完成
-    
-    // 性能优化：批量更新 DOM
-    let pendingText = '';
-    let lastUIUpdate = 0;
-    const UI_UPDATE_INTERVAL = 50;  // 每 50ms 更新一次 UI
-    let lastSpeedUpdate = 0;
-    const SPEED_UPDATE_INTERVAL = 200;  // 每 200ms 更新一次速度
-    
-    // 防止无限循环的安全措施
-    const MAX_ITERATIONS = 100000;  // 最大迭代次数
-    let totalIterations = 0;
-    
-    // 获取原生 DOM 元素用于直接操作
-    const streamBoxEl = $streamBox[0];
-
-    try {
-        while (!streamDone) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            // 检查是否已取消
-            if (signal.aborted) {
-                cancelled = true;
-                break;
-            }
-
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
-
-            // 处理按 \n\n 或 \n 分隔的 SSE 事件
-            // 注意：有些服务器用单个 \n 分隔
-            let idx;
-            let loopCount = 0;
-            const MAX_LOOP = 1000;  // 单次 chunk 最大处理事件数
+    while (true) {
+        const { done, value } = await reader.read();
+        
+        if (value) {
+            buffer += decoder.decode(value, { stream: true });
+        }
+        
+        // 查找最后一个换行符
+        const lastNewlineIdx = buffer.lastIndexOf('\n');
+        
+        // 没有完整行且未结束，继续等待
+        if (lastNewlineIdx === -1 && !done) {
+            continue;
+        }
+        
+        // 提取可处理的数据
+        const completeData = done ? buffer : buffer.slice(0, lastNewlineIdx);
+        buffer = done ? '' : buffer.slice(lastNewlineIdx + 1);
+        
+        // 逐行处理 SSE
+        for (const line of completeData.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data:')) continue;
             
-            while ((idx = buffer.indexOf('\n')) !== -1 && loopCount < MAX_LOOP) {
-                loopCount++;
-                totalIterations++;
+            const dataStr = trimmed.slice(5).trim();
+            if (dataStr === '[DONE]') continue;
+            
+            try {
+                const json = JSON.parse(dataStr);
                 
-                // 安全检查：防止无限循环
-                if (totalIterations > MAX_ITERATIONS) {
-                    logger.error('检测到异常循环，强制终止');
-                    streamDone = true;
-                    break;
+                if (json.usage) {
+                    stats.promptTokens = json.usage.prompt_tokens || 0;
+                    stats.completionTokens = json.usage.completion_tokens || 0;
+                    stats.totalTokens = json.usage.total_tokens || 0;
                 }
                 
-                const line = buffer.slice(0, idx).trim();
-                buffer = buffer.slice(idx + 1);
-                
-                // 跳过空行
-                if (!line) continue;
-                
-                // 检查是否是 data: 开头
-                if (!line.startsWith('data:')) continue;
-                
-                const dataStr = line.slice(5).trim();
-                
-                // 检查流结束信号
-                if (dataStr === '[DONE]') {
-                    streamDone = true;
-                    break;
+                if (json.choices?.[0]?.finish_reason) {
+                    stats.finishReason = json.choices[0].finish_reason;
                 }
                 
-                try {
-                    const json = JSON.parse(dataStr);
-
-                    // 提取 usage 信息（如果有）
-                    if (json.usage) {
-                        stats.promptTokens = json.usage.prompt_tokens || 0;
-                        stats.completionTokens = json.usage.completion_tokens || 0;
-                        stats.totalTokens = json.usage.total_tokens || 0;
+                const delta = json.choices?.[0]?.delta?.content;
+                if (delta) {
+                    if (stats.firstTokenTime === null) {
+                        stats.firstTokenTime = Date.now();
+                        $('#stat-ttft').text(`${stats.firstTokenTime - stats.startTime} ms`);
                     }
-
-                    // 提取完成原因
-                    const finishReason = json.choices?.[0]?.finish_reason;
-                    if (finishReason) {
-                        stats.finishReason = finishReason;
-                        // 如果收到 stop 或其他完成原因，标记流结束
-                        if (finishReason === 'stop' || finishReason === 'length') {
-                            // 不立即退出，因为后面可能还有 usage 信息
-                        }
+                    tokenCount++;
+                    accumulated += delta;
+                    streamBoxEl.appendChild(document.createTextNode(delta));
+                    streamBoxEl.scrollTop = streamBoxEl.scrollHeight;
+                    
+                    // 实时更新输出 token 数
+                    $('#stat-completion-tokens').text(`${tokenCount} (接收中...)`);
+                    
+                    // 每秒更新一次速度
+                    const now = Date.now();
+                    if (now - lastSpeedUpdate > 1000) {
+                        lastSpeedUpdate = now;
+                        const elapsed = (now - stats.startTime) / 1000;
+                        const speed = elapsed > 0 ? tokenCount / elapsed : 0;
+                        $('#stat-speed').text(`${speed.toFixed(1)} tokens/s`);
                     }
-
-                    const delta = json.choices?.[0]?.delta?.content;
-                    if (delta != null && delta !== '') {
-                        // 记录首个 token 时间
-                        if (stats.firstTokenTime === null) {
-                            stats.firstTokenTime = Date.now();
-                            const ttft = stats.firstTokenTime - stats.startTime;
-                            $('#stat-ttft').text(`${ttft} ms`);
-                            logger.info(`首Token延迟 (TTFT): ${ttft} ms`);
-                        }
-
-                        tokenCount++;
-                        accumulated += delta;
-                        pendingText += delta;
-                        
-                        // 批量更新 DOM（限制更新频率）
-                        const now = Date.now();
-                        if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
-                            // 使用 createTextNode 比 jQuery 更快
-                            streamBoxEl.appendChild(document.createTextNode(pendingText));
-                            streamBoxEl.scrollTop = streamBoxEl.scrollHeight;
-                            pendingText = '';
-                            lastUIUpdate = now;
-                            
-                            // 限制速度更新频率
-                            if (now - lastSpeedUpdate >= SPEED_UPDATE_INTERVAL) {
-                                const elapsed = (now - stats.startTime) / 1000;
-                                if (elapsed > 0) {
-                                    $('#stat-speed').text(`${(tokenCount / elapsed).toFixed(1)} tokens/s`);
-                                }
-                                lastSpeedUpdate = now;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // JSON 解析失败，记录但继续
-                    console.warn('[SSE] JSON parse error:', e.message, 'data:', dataStr.slice(0, 100));
                 }
+            } catch (e) {
+                // JSON 解析失败，跳过
             }
         }
         
-        // 刷新剩余的待输出文本
-        if (pendingText) {
-            streamBoxEl.appendChild(document.createTextNode(pendingText));
-            streamBoxEl.scrollTop = streamBoxEl.scrollHeight;
-        }
-    } catch (e) {
-        if (e.name === 'AbortError') {
-            cancelled = true;
-        } else {
-            throw e;
-        }
-    } finally {
-        // 如果取消了，尝试关闭 reader
-        if (cancelled) {
-            try {
-                await reader.cancel();
-            } catch (e) {
-                // 忽略关闭错误
-            }
-        }
+        if (done) break;
     }
 
     // 完成统计
-    stats.endTime = Date.now();
-    const totalTime = stats.endTime - stats.startTime;
+    const totalTime = Date.now() - stats.startTime;
     const totalSeconds = totalTime / 1000;
 
-    // 如果 API 没有返回 token 统计，使用本地计数
     if (stats.completionTokens === 0) {
         stats.completionTokens = tokenCount;
-        // 粗略估算输入 tokens (中文约1.5字符/token，英文约4字符/token)
         stats.promptTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 2);
         stats.totalTokens = stats.promptTokens + stats.completionTokens;
     }
@@ -709,40 +563,19 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
     const speed = totalSeconds > 0 ? stats.completionTokens / totalSeconds : 0;
     $('#stat-speed').text(`${speed.toFixed(1)} tokens/s`);
 
-    // 完成原因显示
-    let finishReasonText = stats.finishReason || 'unknown';
-    if (cancelled) {
-        finishReasonText = '⛔ cancelled (用户取消)';
-        stats.finishReason = 'cancelled';
-        $('#stat-finish-reason').css('color', '#f0ad4e');
-    } else if (stats.finishReason === 'length') {
-        finishReasonText = '⚠️ length (被截断)';
-        $('#stat-finish-reason').css('color', '#d9534f');
-    } else if (stats.finishReason === 'stop') {
-        finishReasonText = '✅ stop (正常结束)';
-        $('#stat-finish-reason').css('color', '#5cb85c');
-    }
-    $('#stat-finish-reason').text(finishReasonText);
+    const reasonMap = {
+        'stop': { text: '✅ stop (正常结束)', color: '#5cb85c' },
+        'length': { text: '⚠️ length (被截断)', color: '#d9534f' }
+    };
+    const reasonInfo = reasonMap[stats.finishReason] || { text: stats.finishReason || 'unknown', color: '' };
+    $('#stat-finish-reason').text(reasonInfo.text).css('color', reasonInfo.color);
 
-    if (cancelled) {
-        logger.warn(`流式传输已取消，已接收: ${accumulated.length} 字符`);
-    } else {
-        logger.info(`流式累计完成，长度: ${accumulated.length}`);
-    }
     logger.info(`统计: 输入${stats.promptTokens} + 输出${stats.completionTokens} = ${stats.totalTokens} tokens`);
     logger.info(`耗时: ${totalSeconds.toFixed(2)}s, 速度: ${speed.toFixed(1)} tokens/s`);
 
-    // 如果取消了，抛出 AbortError 让调用方知道
-    if (cancelled) {
-        const error = new Error('用户取消');
-        error.name = 'AbortError';
-        throw error;
-    }
-
-    // 返回完整内容和统计信息
     return {
         content: accumulated.trim(),
-        stats: stats
+        stats
     };
 }
 
