@@ -1,0 +1,197 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f5f5f5;
+}
+
+#container {
+    max-width: 1000px;
+    margin: 0 auto;
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+h2 {
+    margin-top: 0;
+    color: #333;
+}
+
+.input-section {
+    margin-bottom: 20px;
+}
+
+#input-text {
+    width: 100%;
+    height: 150px;
+    padding: 12px;
+    font-family: inherit;
+    font-size: 14px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    resize: vertical;
+}
+
+#input-text:focus {
+    outline: none;
+    border-color: #4a90d9;
+    box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+}
+
+.button-row {
+    margin-top: 10px;
+}
+
+#btn-analyze {
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: bold;
+    color: white;
+    background-color: #4a90d9;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+#btn-analyze:hover {
+    background-color: #357abd;
+}
+
+#btn-analyze:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+#btn-clear-log {
+    padding: 10px 20px;
+    font-size: 14px;
+    color: #666;
+    background-color: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: 10px;
+    transition: background-color 0.2s;
+}
+
+#btn-clear-log:hover {
+    background-color: #e0e0e0;
+}
+
+.log-section {
+    margin-top: 20px;
+}
+
+.log-section h3 {
+    margin: 0 0 10px 0;
+    color: #555;
+    font-size: 14px;
+}
+
+#log-container {
+    height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #fafafa;
+}
+
+#log-list {
+    list-style: none;
+    margin: 0;
+    padding: 10px;
+}
+
+#log-list li {
+    padding: 6px 10px;
+    margin-bottom: 4px;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 12px;
+    border-radius: 3px;
+    background-color: #fff;
+    border-left: 3px solid #ddd;
+    word-break: break-all;
+}
+
+#log-list li.log-info {
+    border-left-color: #4a90d9;
+}
+
+#log-list li.log-success {
+    border-left-color: #5cb85c;
+    background-color: #f0fff0;
+}
+
+#log-list li.log-error {
+    border-left-color: #d9534f;
+    background-color: #fff0f0;
+}
+
+#log-list li.log-warn {
+    border-left-color: #f0ad4e;
+    background-color: #fffbf0;
+}
+
+.log-time {
+    color: #999;
+    margin-right: 8px;
+}
+
+/* 结果展示区域 */
+.result-section {
+    margin-top: 20px;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #fff;
+    display: none;
+}
+
+.result-section.visible {
+    display: block;
+}
+
+.entity {
+    display: inline-block;
+    padding: 2px 6px;
+    margin: 2px;
+    border-radius: 3px;
+    font-size: 13px;
+}
+
+.entity-PERSON {
+    background-color: #ffcdd2;
+    border: 1px solid #ef9a9a;
+}
+
+.entity-TIME {
+    background-color: #c8e6c9;
+    border: 1px solid #a5d6a7;
+}
+
+.entity-LOCATION {
+    background-color: #bbdefb;
+    border: 1px solid #90caf9;
+}
+
+.entity-ORGANIZATION {
+    background-color: #ffe0b2;
+    border: 1px solid #ffcc80;
+}
+
+.entity-THING {
+    background-color: #e1bee7;
+    border: 1px solid #ce93d8;
+}
+
+.entity-RELATIONSHIP {
+    background-color: #b2ebf2;
+    border: 1px solid #80deea;
+}
