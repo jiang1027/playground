@@ -5,6 +5,12 @@ let API_CONFIG = {
     apiKey: 'lm-studio'  // LM Studio 不需要真实 key，但 API 格式需要
 };
 
+// 分段处理配置
+const CHUNK_CONFIG = {
+    maxCharsPerChunk: 5000,  // 每段最大字符数
+    overlapChars: 500,       // 段与段之间的重叠字符，避免实体被切断
+};
+
 // ========== 辅助工具 ==========
 // 剥离 <think> 与 <no_think> 标签内容，返回清理后的文本
 function stripThinkBlocks(text) {
@@ -65,6 +71,20 @@ const logger = {
     error: (msg) => log(msg, 'error'),
     warn: (msg) => log(msg, 'warn')
 };
+
+// ========== 进度条控制 ==========
+function updateProgress(current, total, text = '') {
+    const $el = $('#progress-text');
+    
+    const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+    $el.text(text || `处理中: ${current}/${total} 段`);
+    // 用背景渐变表现进度
+    $el.css('background', `linear-gradient(90deg, #b8e6c1 0%, #b8e6c1 ${percent}%, #e9ecef ${percent}%, #e9ecef 100%)`);
+}
+
+function resetProgress() {
+    $('#progress-text').text('').css('background', '#e9ecef');
+}
 
 // ========== 主逻辑 ==========
 $(document).ready(function () {
@@ -222,6 +242,12 @@ async function refreshModelList() {
 // NER 分析函数
 async function analyzeNER(text) {
     logger.info('调用 LLM API 进行 NER 分析...');
+    
+    // 重置进度条
+    resetProgress();
+    
+    // 清空之前的识别结果
+    $resultDisplay.empty();
 
     const systemPrompt = `你是一个专业的命名实体识别(NER)助手。请从用户输入的文本中提取以下类型的实体：
 - PERSON: 人物姓名
@@ -240,35 +266,165 @@ async function analyzeNER(text) {
 
 只返回 JSON 数组，不要有其他解释文字。如果没有识别到任何实体，返回空数组 []。`;
 
-    const userPrompt = `请分析以下文本中的命名实体：
+    // 检查是否需要分段处理
+    const chunks = splitTextIntoChunks(text, CHUNK_CONFIG.maxCharsPerChunk, CHUNK_CONFIG.overlapChars);
+    
+    if (chunks.length > 1) {
+        logger.info(`文本较长 (${text.length} 字符)，将分 ${chunks.length} 段处理`);
+    }
 
-${text}`;
-
+    let allEntities = [];
+    
     try {
-        // 使用流式模式获取原始内容（含可能的 <think> 标签）
-        const result = await callOpenAIAPIStreaming(systemPrompt, userPrompt);
-        const rawContent = result.content;
-        logger.success('流式接收完成');
+        for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            
+            // 更新进度条
+            updateProgress(i, chunks.length, `处理中: ${i + 1}/${chunks.length} 段`);
+            
+            if (chunks.length > 1) {
+                logger.info(`处理第 ${i + 1}/${chunks.length} 段 (位置 ${chunk.start}-${chunk.end}，${chunk.text.length} 字符)`);
+            }
 
-        // 提取思维链内容
-        const thoughtBlocks = extractThoughtBlocks(rawContent);
-        if (thoughtBlocks.length) {
-            thoughtBlocks.forEach((b, i) => {
-                logger.info(`[${b.tag}${b.orphan ? ' (未闭合)' : ''}] 第${i + 1}段长度 ${b.content.length} 字符`);
-            });
-        } else {
-            logger.info('未检测到 <think>/<no_think> 内容');
+            const userPrompt = `请分析以下文本中的命名实体：
+
+${chunk.text}`;
+
+            // 使用流式模式获取原始内容（含可能的 <think> 标签）
+            const result = await callOpenAIAPIStreaming(systemPrompt, userPrompt);
+            const rawContent = result.content;
+            
+            if (i === chunks.length - 1 || chunks.length === 1) {
+                logger.success('流式接收完成');
+            }
+
+            // 提取思维链内容
+            const thoughtBlocks = extractThoughtBlocks(rawContent);
+            if (thoughtBlocks.length) {
+                thoughtBlocks.forEach((b, j) => {
+                    logger.info(`[${b.tag}${b.orphan ? ' (未闭合)' : ''}] 第${j + 1}段长度 ${b.content.length} 字符`);
+                });
+            } else if (chunks.length === 1) {
+                logger.info('未检测到 <think>/<no_think> 内容');
+            }
+
+            // 清洗后内容用于解析实体
+            const cleaned = stripThinkBlocks(rawContent);
+            const entities = parseEntitiesFromResponse(cleaned);
+            
+            // 调整实体位置偏移（因为是分段处理）
+            const adjustedEntities = entities.map(entity => ({
+                ...entity,
+                start: entity.start + chunk.start,
+                end: entity.end + chunk.start
+            }));
+            
+            // 合并并去重
+            allEntities = allEntities.concat(adjustedEntities);
+            allEntities = deduplicateEntities(allEntities);
+            
+            if (chunks.length > 1) {
+                logger.info(`第 ${i + 1} 段识别到 ${entities.length} 个实体，累计 ${allEntities.length} 个（已去重）`);
+            }
+            
+            // 每段完成后立即更新显示（显示去重后的汇总）
+            displayEntities(allEntities, text);
         }
-
-        // 清洗后内容用于解析实体
-        const cleaned = stripThinkBlocks(rawContent);
-        const entities = parseEntitiesFromResponse(cleaned);
-        logger.success(`识别到 ${entities.length} 个实体 (已剥离思维链)`);
-        displayEntities(entities, text);
+        
+        // 完成进度
+        updateProgress(chunks.length, chunks.length, '处理完成');
+        
+        logger.success(`识别到 ${allEntities.length} 个实体 (已剥离思维链、去重)`);
+        
+        // 延迟清除进度条
+        setTimeout(resetProgress, 2000);
+        
     } catch (error) {
+        resetProgress();
         logger.error(`API 调用失败: ${error.message}`);
         throw error;
     }
+}
+
+// 将文本分割成多个块
+function splitTextIntoChunks(text, maxChars, overlap) {
+    if (text.length <= maxChars) {
+        return [{ text, start: 0, end: text.length }];
+    }
+    
+    const chunks = [];
+    let start = 0;
+    
+    // 句子结束符搜索范围：取 maxChars 的 10% 或至少 200 字符
+    const searchRange = Math.max(200, Math.floor(maxChars * 0.1));
+    // 每段最小有效长度（扣除重叠后）：确保每段至少贡献 maxChars - overlap 的新内容
+    const minEffectiveLength = maxChars - overlap;
+    
+    while (start < text.length) {
+        // 计算理想的结束位置
+        let end = Math.min(start + maxChars, text.length);
+        
+        // 如果不是最后一段，尝试在句子结束处分割
+        if (end < text.length) {
+            const searchStart = Math.max(end - searchRange, start + minEffectiveLength);
+            
+            // 只有当搜索范围有效时才查找句子边界
+            if (searchStart < end) {
+                const searchText = text.slice(searchStart, end);
+                
+                // 查找最后一个句子结束符（中文句号、感叹号、问号、换行）
+                const sentenceEnders = /[。！？\n]/g;
+                let lastMatch = null;
+                let match;
+                while ((match = sentenceEnders.exec(searchText)) !== null) {
+                    lastMatch = match;
+                }
+                
+                if (lastMatch) {
+                    end = searchStart + lastMatch.index + 1;
+                }
+            }
+        }
+        
+        chunks.push({
+            text: text.slice(start, end),
+            start: start,
+            end: end
+        });
+        
+        // 如果已经到达文本末尾，退出
+        if (end >= text.length) {
+            break;
+        }
+        
+        // 下一段起始位置 = 当前段结束位置 - 重叠
+        start = end - overlap;
+    }
+    
+    console.log(`[splitTextIntoChunks] 文本长度: ${text.length}, maxChars: ${maxChars}, overlap: ${overlap}, 分段数: ${chunks.length}`);
+    chunks.forEach((c, i) => console.log(`  段${i + 1}: ${c.start}-${c.end} (${c.end - c.start}字符)`));
+    
+    return chunks;
+}
+
+// 去重实体（根据文本和类型）
+function deduplicateEntities(entities) {
+    const seen = new Map();
+    
+    entities.forEach(entity => {
+        const key = `${entity.text}|${entity.type}`;
+        if (!seen.has(key)) {
+            seen.set(key, entity);
+        } else {
+            // 如果已存在，保留位置更靠前的
+            const existing = seen.get(key);
+            if (entity.start < existing.start) {
+                seen.set(key, entity);
+            }
+        }
+    });
+    
+    return Array.from(seen.values());
 }
 
 // 普通调用 OpenAI 兼容 API (非流式)
@@ -285,7 +441,6 @@ async function callOpenAIAPI(systemPrompt, userPrompt) {
     } else {
         $streamBox.empty();
     }
-    $resultSection.addClass('visible');
 
     const requestBody = {
         model: API_CONFIG.model,
@@ -361,7 +516,6 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
 
     // 清空输出容器
     const $streamBox = $('#stream-output').empty();
-    $resultSection.addClass('visible');
 
     const requestBody = {
         model: API_CONFIG.model,
@@ -611,7 +765,6 @@ function parseEntitiesFromResponse(responseText) {
 
 // 显示实体结果
 function displayEntities(entities, originalText) {
-    $resultSection.addClass('visible');
     $resultDisplay.empty();
 
     if (entities.length === 0) {

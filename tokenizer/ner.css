@@ -82,7 +82,7 @@ body {
     border-radius: 0 0 4px 4px;
     margin: 0;
     height: 120px;
-    min-height: 80px;
+    height: 145px;
 }
 
 .right-column #log-container {
@@ -104,7 +104,7 @@ h2 {
     background-color: #f8f9fa;
     border: 1px solid #e9ecef;
     border-radius: 6px;
-    height: 160px;  /* 固定高度，与右侧统计面板对齐 */
+    height: 185px;  /* 固定高度，与右侧统计面板对齐 */
     flex-shrink: 0;
 }
 
@@ -208,7 +208,7 @@ h2 {
 
 #input-text {
     width: 100%;
-    height: 108px;
+    height: 135px;
     padding: 10px;
     font-family: inherit;
     font-size: 14px;
@@ -365,13 +365,9 @@ h2 {
     background-color: #fff;
     flex: 1;
     min-height: 0;
-    display: none;
+    display: flex;
     flex-direction: column;
     overflow: hidden;
-}
-
-.result-section.visible {
-    display: flex;
 }
 
 .result-section h3 {
@@ -515,4 +511,18 @@ h2 {
     max-height: 300px;
     overflow: auto;
     border-radius: 4px;
+}
+
+/* 分段处理进度条 */
+#progress-text {
+    height: 18px;
+    margin-top: 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #555;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(90deg, #d4edda 0%, #d4edda 0%, #e9ecef 0%, #e9ecef 100%);
+    transition: background 0.3s ease;
 }
