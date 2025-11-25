@@ -294,7 +294,7 @@ async function callOpenAIAPI(systemPrompt, userPrompt) {
             { role: 'user', content: userPrompt }
         ],
         temperature: 0.1,
-        // 不设置 max_tokens，让模型使用其最大上下文长度
+        // max_tokens: 32768,
         stream: false
     };
 
@@ -398,6 +398,16 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
 
     let chunkIndex = 0;
     let cancelled = false;
+    
+    // 性能优化：批量更新 DOM
+    let pendingText = '';
+    let lastUIUpdate = 0;
+    const UI_UPDATE_INTERVAL = 50;  // 每 50ms 更新一次 UI
+    let lastSpeedUpdate = 0;
+    const SPEED_UPDATE_INTERVAL = 200;  // 每 200ms 更新一次速度
+    
+    // 获取原生 DOM 元素用于直接操作
+    const streamBoxEl = $streamBox[0];
 
     try {
         while (true) {
@@ -414,66 +424,78 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
             buffer += chunk;
 
             // 处理按 \n\n 分隔的 SSE 事件
-            const events = buffer.split(/\n\n/);
-            // 保留最后一个未完成的片段在 buffer 中
-            buffer = events.pop();
-            for (const ev of events) {
-                const line = ev.trim();
-                if (!line) continue;
-                if (line.startsWith('data:')) {
-                    const dataStr = line.slice(5).trim();
-                    if (dataStr === '[DONE]') {
-                        continue;
+            let idx;
+            while ((idx = buffer.indexOf('\n\n')) !== -1) {
+                const line = buffer.slice(0, idx).trim();
+                buffer = buffer.slice(idx + 2);
+                
+                if (!line || !line.startsWith('data:')) continue;
+                
+                const dataStr = line.slice(5).trim();
+                if (dataStr === '[DONE]') continue;
+                
+                try {
+                    const json = JSON.parse(dataStr);
+
+                    // 提取 usage 信息（如果有）
+                    if (json.usage) {
+                        stats.promptTokens = json.usage.prompt_tokens || 0;
+                        stats.completionTokens = json.usage.completion_tokens || 0;
+                        stats.totalTokens = json.usage.total_tokens || 0;
                     }
-                    try {
-                        const json = JSON.parse(dataStr);
 
-                        // 提取 usage 信息（如果有）
-                        if (json.usage) {
-                            stats.promptTokens = json.usage.prompt_tokens || 0;
-                            stats.completionTokens = json.usage.completion_tokens || 0;
-                            stats.totalTokens = json.usage.total_tokens || 0;
-                        }
-
-                        // 提取完成原因
-                        const finishReason = json.choices?.[0]?.finish_reason;
-                        if (finishReason) {
-                            stats.finishReason = finishReason;
-                        }
-
-                        const delta = json.choices?.[0]?.delta?.content;
-                        // 只要 delta 不是 undefined/null 就输出（保留空字符串）
-                        if (delta != null && delta !== '') {
-                            // 记录首个 token 时间
-                            if (stats.firstTokenTime === null) {
-                                stats.firstTokenTime = Date.now();
-                                const ttft = stats.firstTokenTime - stats.startTime;
-                                $('#stat-ttft').text(`${ttft} ms`);
-                                logger.info(`首Token延迟 (TTFT): ${ttft} ms`);
-                            }
-
-                            tokenCount++;
-                            accumulated += delta;
-                            // 使用 text() 转义后追加，避免 HTML 注入，但保留原始内容
-                            const $deltaSpan = $('<span>').text(delta);
-                            $streamBox.append($deltaSpan);
-                            // 自动滚动到底部
-                            $streamBox.scrollTop($streamBox[0].scrollHeight);
-
-                            // 实时更新速度
-                            const elapsed = (Date.now() - stats.startTime) / 1000;
-                            if (elapsed > 0) {
-                                $('#stat-speed').text(`${(tokenCount / elapsed).toFixed(1)} tokens/s`);
-                            }
-                        }
-                    } catch (e) {
-                        // 非 JSON 行，原样输出
-                        accumulated += dataStr + '\n';
-                        $streamBox.append($('<span>').text(dataStr + '\n'));
+                    // 提取完成原因
+                    const finishReason = json.choices?.[0]?.finish_reason;
+                    if (finishReason) {
+                        stats.finishReason = finishReason;
                     }
+
+                    const delta = json.choices?.[0]?.delta?.content;
+                    if (delta != null && delta !== '') {
+                        // 记录首个 token 时间
+                        if (stats.firstTokenTime === null) {
+                            stats.firstTokenTime = Date.now();
+                            const ttft = stats.firstTokenTime - stats.startTime;
+                            $('#stat-ttft').text(`${ttft} ms`);
+                            logger.info(`首Token延迟 (TTFT): ${ttft} ms`);
+                        }
+
+                        tokenCount++;
+                        accumulated += delta;
+                        pendingText += delta;
+                        
+                        // 批量更新 DOM（限制更新频率）
+                        const now = Date.now();
+                        if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
+                            // 使用 createTextNode 比 jQuery 更快
+                            streamBoxEl.appendChild(document.createTextNode(pendingText));
+                            streamBoxEl.scrollTop = streamBoxEl.scrollHeight;
+                            pendingText = '';
+                            lastUIUpdate = now;
+                            
+                            // 限制速度更新频率
+                            if (now - lastSpeedUpdate >= SPEED_UPDATE_INTERVAL) {
+                                const elapsed = (now - stats.startTime) / 1000;
+                                if (elapsed > 0) {
+                                    $('#stat-speed').text(`${(tokenCount / elapsed).toFixed(1)} tokens/s`);
+                                }
+                                lastSpeedUpdate = now;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // 非 JSON 行，原样输出
+                    accumulated += dataStr + '\n';
+                    pendingText += dataStr + '\n';
                 }
             }
             chunkIndex++;
+        }
+        
+        // 刷新剩余的待输出文本
+        if (pendingText) {
+            streamBoxEl.appendChild(document.createTextNode(pendingText));
+            streamBoxEl.scrollTop = streamBoxEl.scrollHeight;
         }
     } catch (e) {
         if (e.name === 'AbortError') {
