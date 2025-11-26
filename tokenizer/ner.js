@@ -53,6 +53,9 @@ let $apiBaseUrl, $apiModel, $apiKey, $btnRefreshModels, $modelStatus;
 // 用于取消流式请求
 let currentAbortController = null;
 
+// 日志节流控制
+let logScrollPending = false;
+
 function log(message, type = 'info') {
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     const $li = $('<li>')
@@ -60,8 +63,22 @@ function log(message, type = 'info') {
         .html(`<span class="log-time">[${time}]</span>${$('<div>').text(message).html()}`);
 
     $logList.append($li);
-    // 自动滚动到底部
-    $logContainer.scrollTop($logContainer[0].scrollHeight);
+    
+    // 限制日志条目数量，防止 DOM 过大
+    const maxLogItems = 500;
+    const $items = $logList.children();
+    if ($items.length > maxLogItems) {
+        $items.slice(0, $items.length - maxLogItems).remove();
+    }
+    
+    // 节流滚动：使用 requestAnimationFrame 合并滚动操作
+    if (!logScrollPending) {
+        logScrollPending = true;
+        requestAnimationFrame(() => {
+            $logContainer.scrollTop($logContainer[0].scrollHeight);
+            logScrollPending = false;
+        });
+    }
 }
 
 // 日志快捷方法
@@ -321,12 +338,14 @@ ${chunk.text}`;
             allEntities = allEntities.concat(entities);
             allEntities = deduplicateEntities(allEntities);
             
+            const isLastChunk = (i === chunks.length - 1);
+            
             if (chunks.length > 1) {
-                logger.info(`第 ${i + 1} 段识别到 ${entities.length} 个实体，累计 ${allEntities.length} 个（已去重）`);
+                logger.info(`第 ${i + 1} 段识别到 ${entities.length} 个概念，累计 ${allEntities.length} 个（已去重）`);
             }
             
-            // 每段完成后立即更新显示（显示去重后的汇总）
-            displayEntities(allEntities, text);
+            // 每段完成后更新显示，但只在最后一段打印详细日志
+            displayEntities(allEntities, text, !isLastChunk);
         }
         
         // 完成进度
@@ -482,11 +501,21 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
     let accumulated = '';
     let tokenCount = 0;
     let lastSpeedUpdate = 0;  // 上次更新速度的时间
+    let lastDOMUpdate = 0;    // 上次 DOM 更新的时间
+    let pendingText = '';     // 待写入 DOM 的文本（批量更新）
     
     // === 调试：重复检测 ===
     const DEBUG_REPEAT = false;  // 开关：是否启用详细调试日志
     let readCount = 0;           // reader.read() 调用次数
-    let lastContentCheck = 0;    // 上次检查内容重复的长度
+
+    // 批量更新 DOM 的函数（减少重排次数）
+    const flushDOM = () => {
+        if (pendingText) {
+            streamBoxEl.appendChild(document.createTextNode(pendingText));
+            pendingText = '';
+        }
+        streamBoxEl.scrollTop = streamBoxEl.scrollHeight;
+    };
 
     while (true) {
         const { done, value } = await reader.read();
@@ -526,7 +555,7 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
             
             const dataStr = trimmed.slice(5).trim();
             if (dataStr === '[DONE]') {
-                console.log('[DEBUG] 收到 [DONE] 信号');
+                if (DEBUG_REPEAT) console.log('[DEBUG] 收到 [DONE] 信号');
                 continue;
             }
             
@@ -554,19 +583,22 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
                     }
                     tokenCount++;
                     accumulated += delta;
-                    streamBoxEl.appendChild(document.createTextNode(delta));
-                    streamBoxEl.scrollTop = streamBoxEl.scrollHeight;
+                    pendingText += delta;  // 累积待更新文本
                     
-                    // 实时更新输出 token 数
-                    $('#stat-completion-tokens').text(`${tokenCount} (接收中...)`);
-                    
-                    // 每秒更新一次速度
+                    // 每 50ms 批量更新一次 DOM，减少重排
                     const now = Date.now();
+                    if (now - lastDOMUpdate > 50) {
+                        lastDOMUpdate = now;
+                        flushDOM();
+                    }
+                    
+                    // 每秒更新一次统计信息
                     if (now - lastSpeedUpdate > 1000) {
                         lastSpeedUpdate = now;
                         const elapsed = (now - stats.startTime) / 1000;
                         const speed = elapsed > 0 ? tokenCount / elapsed : 0;
                         $('#stat-speed').text(`${speed.toFixed(1)} tokens/s`);
+                        $('#stat-completion-tokens').text(`${tokenCount} (接收中...)`);
                     }
                 }
             } catch (e) {
@@ -578,6 +610,8 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
         }
         
         if (done) {
+            // 最后刷新剩余内容
+            flushDOM();
             if (DEBUG_REPEAT) {
                 console.log(`[DEBUG] 流结束. 总共读取 ${readCount} 次, 输出 ${accumulated.length} 字符, ${tokenCount} tokens`);
             }
@@ -691,7 +725,8 @@ function parseEntitiesFromResponse(responseText) {
 }
 
 // 显示概念结果（开放域知识抽取）
-function displayEntities(entities, originalText) {
+// silent: 静默模式，不打印详细日志（用于中间段的增量更新）
+function displayEntities(entities, originalText, silent = false) {
     $resultDisplay.empty();
 
     if (entities.length === 0) {
@@ -750,9 +785,18 @@ function displayEntities(entities, originalText) {
 
         $group.append($header).append($content);
         $resultDisplay.append($group);
-
-        logger.info(`${typeLabel}: ${grouped[type].map(e => e.text).join(', ')}`);
     });
 
-    logger.success(`共识别 ${entities.length} 个概念，分为 ${sortedTypes.length} 类`);
+    // 只在非静默模式下打印详细日志
+    if (!silent) {
+        sortedTypes.forEach(type => {
+            const typeLabel = `🏷️ ${type}`;
+            // 限制日志中显示的实体数量，避免日志过长
+            const entities = grouped[type];
+            const displayTexts = entities.slice(0, 10).map(e => e.text);
+            const suffix = entities.length > 10 ? ` ...等${entities.length}个` : '';
+            logger.info(`${typeLabel}: ${displayTexts.join(', ')}${suffix}`);
+        });
+        logger.success(`共识别 ${entities.length} 个概念，分为 ${sortedTypes.length} 类`);
+    }
 }
