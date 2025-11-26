@@ -197,9 +197,11 @@ $(document).ready(function () {
 
         const reader = new FileReader();
         reader.onload = function(event) {
-            $inputText.val(event.target.result);
+            // 预处理：去除 Tab 制表符，防止干扰 TSV 解析
+            const cleanedText = event.target.result.replace(/\t/g, ' ');
+            $inputText.val(cleanedText);
             $fileInfo.text(`已加载: ${file.name} (${formatFileSize(file.size)})`);
-            logger.success(`已加载文件: ${file.name}, 大小: ${formatFileSize(file.size)}, 字符数: ${event.target.result.length}`);
+            logger.success(`已加载文件: ${file.name}, 大小: ${formatFileSize(file.size)}, 字符数: ${cleanedText.length}`);
         };
         reader.onerror = function() {
             logger.error(`读取文件失败: ${file.name}`);
@@ -567,22 +569,24 @@ async function semanticChunking(text, onChunksFound) {
 4. **自然边界**: 优先在段落、章节、主题转换处进行分割
 
 **【输出格式】**
-请使用 JSON 数组格式返回分块结果，每个分块包含：
-- "title": 分块的简短标题（5-15字）
-- "summary": 分块内容的一句话摘要
-- "content": 分块的原文内容
+请使用 TSV (Tab-Separated Values) 格式返回分块结果。
+每一行代表一个分块，包含三列，用制表符(Tab)分隔：
+列1: 分块标题（5-15字）
+列2: 分块摘要（一句话）
+列3: 分块原文内容
 
 示例输出：
-\`\`\`json
-[
-  {"title": "人工智能概述", "summary": "介绍AI的定义和研究领域", "content": "人工智能（Artificial Intelligence..."},
-  {"title": "深度学习技术", "summary": "说明深度学习的原理和应用", "content": "深度学习是机器学习的一个子领域..."}
-]
+\`\`\`
+人工智能概述	介绍AI的定义和研究领域	人工智能（Artificial Intelligence，简称AI）是计算机科学的一个分支...
+深度学习技术	说明深度学习的原理和应用	深度学习是机器学习的一个子领域，它基于人工神经网络...
+自然语言处理	NLP技术及其应用场景	自然语言处理（Natural Language Processing）是人工智能的重要分支...
 \`\`\`
 
 **【重要提醒】**
-- 只输出 JSON 数组，不要有其他解释文字
+- 只输出 TSV 格式数据，不要有其他解释文字
+- 每行三列，用制表符(Tab)分隔
 - content 字段必须是原文的直接引用，不要修改原文
+- 如果内容中有换行符，保持原样即可
 - 确保所有原文内容都被包含在分块中，不要遗漏`;
 
             const userPrompt = `请将以下文本按语义边界进行分块：
@@ -773,32 +777,63 @@ function fixedChunking(text) {
     return chunks;
 }
 
-// 解析 LLM 响应中的分块
+// 解析 LLM 响应中的分块 (TSV 格式)
 function parseChunksFromResponse(responseText) {
     try {
-        let jsonStr = responseText.trim();
+        let tsvText = responseText.trim();
         
         // 移除可能的 markdown 代码块标记
-        const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        const codeBlockMatch = tsvText.match(/```(?:tsv)?\s*([\s\S]*?)\s*```/);
         if (codeBlockMatch) {
-            jsonStr = codeBlockMatch[1].trim();
+            tsvText = codeBlockMatch[1].trim();
         }
         
-        // 尝试解析 JSON
-        const chunks = JSON.parse(jsonStr);
+        // 按行分割
+        const lines = tsvText.split('\n').filter(line => line.trim());
         
-        if (!Array.isArray(chunks)) {
-            logger.warn('响应不是有效的 JSON 数组');
+        if (lines.length === 0) {
+            logger.warn('响应为空');
             return [];
         }
         
-        // 验证和规范化分块
-        return chunks.map((chunk, index) => ({
-            id: chunk.id || index + 1,
-            title: chunk.title || `分块 ${index + 1}`,
-            summary: chunk.summary || '',
-            content: chunk.content || ''
-        })).filter(chunk => chunk.content);
+        const chunks = [];
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            // 分割 TSV 行 (使用制表符)
+            const parts = line.split('\t');
+            
+            // 至少需要 3 列: title, summary, content
+            if (parts.length < 3) {
+                logger.warn(`第 ${i + 1} 行格式不正确，列数不足 (需要3列，实际${parts.length}列)`);
+                continue;
+            }
+            
+            const title = parts[0].trim();
+            const summary = parts[1].trim();
+            // 如果有多余的列（因为 content 中可能包含了 tab），将它们合并
+            const content = parts.slice(2).join('\t').trim();
+            
+            if (!content) {
+                logger.warn(`第 ${i + 1} 行内容为空，跳过`);
+                continue;
+            }
+            
+            chunks.push({
+                id: i + 1,
+                title: title || `分块 ${i + 1}`,
+                summary: summary || '',
+                content: content
+            });
+        }
+        
+        if (chunks.length === 0) {
+            logger.warn('未能从响应中解析出有效分块');
+            return fallbackParsing(responseText);
+        }
+        
+        logger.success(`成功解析 ${chunks.length} 个分块 (TSV 格式)`);
+        return chunks;
         
     } catch (e) {
         logger.error(`解析分块响应失败: ${e.message}`);
