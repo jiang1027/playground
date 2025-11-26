@@ -249,19 +249,27 @@ async function analyzeNER(text) {
     // 清空之前的识别结果
     $resultDisplay.empty();
 
-    const systemPrompt = `你是一个专业的命名实体识别(NER)助手。请从用户输入的文本中提取以下类型的实体：
-- PERSON: 人物姓名
-- TIME: 时间表达式
-- LOCATION: 地点、位置
-- ORGANIZATION: 组织、机构、公司
-- THING: 具体事物、物品
-- EVENT: 事件
+    const systemPrompt = `你是一个专业的开放域知识抽取与概念归纳引擎。你的任务是分析用户提供的文本，并从中提取所有重要、有意义的**概念**或**实体**。
 
-请以 JSON 数组格式返回结果，每个实体包含以下字段：
-- text: 实体文本
-- type: 实体类型（使用上述大写英文标识）
+**【核心指令】**
+1. **概念归纳：** 对于提取的每一个概念，你必须根据其语义内容，为其创造一个最恰当、最简洁的**中文类别标签**。禁止使用PERSON, TIME, LOCATION, ORGANIZATION等预设标签。
+2. **唯一性：** 提取的概念文本必须是唯一的，不得重复。
+3. **输出格式：** 请以 TSV (Tab-Separated Values) 格式返回结果，使用制表符 '\t' 分隔。
 
-只返回 JSON 数组，不要有其他解释文字。如果没有识别到任何实体，返回空数组 []。`;
+**【输出示例及格式要求】**
+text\tconcept_type
+万维网之父\t人物身份
+信息传播\t抽象概念
+巴黎\t城市
+清华大学\t机构名称
+1991年\t具体时间
+
+**【第二部分：关系/边】 (保持不变，但关系类型也应是开放域)**
+... (使用 --- LINKS --- 分隔，并要求模型为关系也发明标签) ...
+
+**终止信号:** 在完成所有数据提取后，立即停止输出，不要有任何额外文字或解释。
+`;
+
 
     // 检查是否需要分段处理
     const chunks = splitTextIntoChunks(text, CHUNK_CONFIG.maxCharsPerChunk, CHUNK_CONFIG.overlapChars);
@@ -454,6 +462,8 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
                 { role: 'user', content: userPrompt }
             ],
             temperature: 0.1,
+            repeat_penalty: 1.3,  // 重复惩罚，防止模型陷入重复输出循环
+            top_k: 30, // 确保模型考虑更多的次优选择，打破局部最优模式
             stream: true,
             stream_options: { include_usage: true }
         }),
@@ -472,12 +482,29 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
     let accumulated = '';
     let tokenCount = 0;
     let lastSpeedUpdate = 0;  // 上次更新速度的时间
+    
+    // === 调试：重复检测 ===
+    const DEBUG_REPEAT = false;  // 开关：是否启用详细调试日志
+    let readCount = 0;           // reader.read() 调用次数
+    let lastContentCheck = 0;    // 上次检查内容重复的长度
 
     while (true) {
         const { done, value } = await reader.read();
+        readCount++;
         
         if (value) {
-            buffer += decoder.decode(value, { stream: true });
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
+            
+            // 调试：记录原始数据块（仅当 DEBUG_REPEAT 开启时）
+            if (DEBUG_REPEAT && chunk.length > 0) {
+                console.log(`[DEBUG read #${readCount}] 收到 ${value.byteLength} 字节, 解码后 ${chunk.length} 字符`);
+            }
+        }
+        
+        // 调试：监控 buffer 大小
+        if (DEBUG_REPEAT && readCount % 50 === 0) {
+            console.log(`[DEBUG] 已读取 ${readCount} 次, buffer大小: ${buffer.length}, 累计输出: ${accumulated.length} 字符`);
         }
         
         // 查找最后一个换行符
@@ -498,7 +525,10 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
             if (!trimmed || !trimmed.startsWith('data:')) continue;
             
             const dataStr = trimmed.slice(5).trim();
-            if (dataStr === '[DONE]') continue;
+            if (dataStr === '[DONE]') {
+                console.log('[DEBUG] 收到 [DONE] 信号');
+                continue;
+            }
             
             try {
                 const json = JSON.parse(dataStr);
@@ -511,6 +541,9 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
                 
                 if (json.choices?.[0]?.finish_reason) {
                     stats.finishReason = json.choices[0].finish_reason;
+                    if (DEBUG_REPEAT) {
+                        console.log(`[DEBUG] 收到 finish_reason: ${stats.finishReason}`);
+                    }
                 }
                 
                 const delta = json.choices?.[0]?.delta?.content;
@@ -538,10 +571,18 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
                 }
             } catch (e) {
                 // JSON 解析失败，跳过
+                if (DEBUG_REPEAT) {
+                    console.warn(`[DEBUG] JSON解析失败: ${e.message}, 原始数据: ${dataStr.slice(0, 100)}`);
+                }
             }
         }
         
-        if (done) break;
+        if (done) {
+            if (DEBUG_REPEAT) {
+                console.log(`[DEBUG] 流结束. 总共读取 ${readCount} 次, 输出 ${accumulated.length} 字符, ${tokenCount} tokens`);
+            }
+            break;
+        }
     }
 
     // 完成统计
@@ -579,60 +620,87 @@ async function callOpenAIAPIStreaming(systemPrompt, userPrompt) {
     };
 }
 
-// 从 LLM 响应中解析实体 JSON
+// 从 LLM 响应中解析概念 TSV（开放域知识抽取）
 function parseEntitiesFromResponse(responseText) {
     try {
-        // 尝试直接解析
-        let jsonStr = responseText.trim();
+        let tsvStr = responseText.trim();
 
-        // 如果响应被 markdown 代码块包裹，提取其中的 JSON
-        const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        // 如果响应被 markdown 代码块包裹，提取其中的内容
+        const codeBlockMatch = tsvStr.match(/```(?:tsv)?\s*([\s\S]*?)\s*```/);
         if (codeBlockMatch) {
-            jsonStr = codeBlockMatch[1].trim();
+            tsvStr = codeBlockMatch[1].trim();
         }
 
-        const entities = JSON.parse(jsonStr);
+        // 按行分割
+        const lines = tsvStr.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-        if (!Array.isArray(entities)) {
-            logger.warn('响应不是数组格式，尝试提取');
+        if (lines.length === 0) {
+            logger.warn('TSV 响应为空');
             return [];
         }
 
-        // 验证每个实体的格式
-        return entities.filter(entity => {
-            const valid = entity.text && entity.type;
-            if (!valid) {
-                logger.warn(`跳过无效实体: ${JSON.stringify(entity)}`);
+        // 检查表头（第一行应为 "text\tconcept_type" 或 "text\ttype"）
+        const header = lines[0].toLowerCase();
+        const hasValidHeader = header.includes('text') && (header.includes('concept_type') || header.includes('type'));
+        
+        if (!hasValidHeader) {
+            logger.warn(`TSV 表头格式不正确: ${lines[0]}`);
+            // 尝试继续解析，假设没有表头
+        }
+
+        const entities = [];
+        const startIdx = hasValidHeader ? 1 : 0;
+
+        for (let i = startIdx; i < lines.length; i++) {
+            const line = lines[i];
+            // 使用制表符分割
+            const parts = line.split('\t');
+            
+            if (parts.length >= 2) {
+                const text = parts[0].trim();
+                // 保留原始中文类别标签，不再强制大写
+                const type = parts[1].trim();
+                
+                if (text && type) {
+                    entities.push({ text, type });
+                } else {
+                    logger.warn(`跳过无效行: ${line}`);
+                }
+            } else {
+                // 尝试用多个空格分割（容错）
+                const spaceParts = line.split(/\s{2,}/);
+                if (spaceParts.length >= 2) {
+                    const text = spaceParts[0].trim();
+                    const type = spaceParts[1].trim();
+                    if (text && type) {
+                        entities.push({ text, type });
+                        logger.warn(`使用空格分隔解析: ${line}`);
+                    }
+                } else {
+                    logger.warn(`跳过无法解析的行: ${line}`);
+                }
             }
-            return valid;
-        });
+        }
+
+        return entities;
     } catch (e) {
-        logger.error(`JSON 解析失败: ${e.message}`);
+        logger.error(`TSV 解析失败: ${e.message}`);
         logger.warn(`原始内容: ${responseText}`);
         return [];
     }
 }
 
-// 显示实体结果
+// 显示概念结果（开放域知识抽取）
 function displayEntities(entities, originalText) {
     $resultDisplay.empty();
 
     if (entities.length === 0) {
-        $resultDisplay.text('未识别到实体');
+        $resultDisplay.text('未识别到概念');
         return;
     }
 
     // 按类型分组
     const grouped = {};
-    const typeOrder = ['PERSON', 'ORGANIZATION', 'LOCATION', 'TIME', 'EVENT', 'THING'];
-    const typeNames = {
-        'PERSON': '👤 人物',
-        'ORGANIZATION': '🏢 组织/机构',
-        'LOCATION': '📍 地点',
-        'TIME': '🕐 时间',
-        'EVENT': '📅 事件',
-        'THING': '📦 事物'
-    };
 
     // 分组
     entities.forEach(entity => {
@@ -643,26 +711,39 @@ function displayEntities(entities, originalText) {
         grouped[type].push(entity);
     });
 
-    // 按预定义顺序显示，未知类型放最后
+    // 按概念数量降序排列，数量相同则按类别名排序
     const sortedTypes = Object.keys(grouped).sort((a, b) => {
-        const idxA = typeOrder.indexOf(a);
-        const idxB = typeOrder.indexOf(b);
-        if (idxA === -1 && idxB === -1) return a.localeCompare(b);
-        if (idxA === -1) return 1;
-        if (idxB === -1) return -1;
-        return idxA - idxB;
+        const countDiff = grouped[b].length - grouped[a].length;
+        if (countDiff !== 0) return countDiff;
+        return a.localeCompare(b, 'zh-CN');
     });
+
+    // 为不同类型生成不同的颜色（基于类型名的哈希）
+    function getTypeColor(type) {
+        let hash = 0;
+        for (let i = 0; i < type.length; i++) {
+            hash = type.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const hue = Math.abs(hash) % 360;
+        return `hsl(${hue}, 70%, 90%)`;
+    }
 
     // 渲染每个分类
     sortedTypes.forEach(type => {
-        const typeLabel = typeNames[type] || `🏷️ ${type}`;
+        const typeLabel = `🏷️ ${type}`;
         const $group = $('<div class="entity-group"></div>');
         const $header = $('<div class="entity-group-header"></div>').text(`${typeLabel} (${grouped[type].length})`);
         const $content = $('<div class="entity-group-content"></div>');
 
+        const bgColor = getTypeColor(type);
+
         grouped[type].forEach(entity => {
             const $span = $('<span>')
-                .addClass(`entity entity-${entity.type}`)
+                .addClass('entity')
+                .css({
+                    'background-color': bgColor,
+                    'border-color': `hsl(${Math.abs(type.split('').reduce((a, c) => c.charCodeAt(0) + ((a << 5) - a), 0)) % 360}, 50%, 60%)`
+                })
                 .text(entity.text);
             $content.append($span);
         });
@@ -673,5 +754,5 @@ function displayEntities(entities, originalText) {
         logger.info(`${typeLabel}: ${grouped[type].map(e => e.text).join(', ')}`);
     });
 
-    logger.success(`共识别 ${entities.length} 个实体，分为 ${sortedTypes.length} 类`);
+    logger.success(`共识别 ${entities.length} 个概念，分为 ${sortedTypes.length} 类`);
 }
