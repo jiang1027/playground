@@ -255,6 +255,18 @@ function formatFileSize(bytes) {
     return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
 }
 
+// 剥离 <think> 与 <no_think> 标签内容，返回清理后的文本
+function stripThinkBlocks(text) {
+    if (!text) return text;
+    // 正常闭合的标签
+    let cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<no_think>[\s\S]*?<\/no_think>/gi, '');
+    // 未闭合的残缺标签 (容错) - 删除起始标签到末尾
+    cleaned = cleaned.replace(/<think>[\s\S]*$/i, '')
+        .replace(/<no_think>[\s\S]*$/i, '');
+    return cleaned.trim();
+}
+
 // 将文本分割成多个块
 function splitTextIntoChunks(text, maxChars, overlap) {
     if (text.length <= maxChars) {
@@ -551,7 +563,8 @@ async function semanticChunking(text) {
 ${segment.text}`;
 
             const result = await callOllamaAPIStreaming(systemPrompt, userPrompt);
-            const content = result.content;
+            // 剥离可能存在的 <think> 标签内容
+            const content = stripThinkBlocks(result.content);
 
             // 解析 JSON 响应
             const segmentChunks = parseChunksFromResponse(content);
