@@ -26,11 +26,15 @@ let CHUNK_CONFIG = {
     overlapChars: 200,        // 重叠字符数
 };
 
+// ========== 全局数据存储 ==========
+let globalChunksData = [];
+
 // ========== DOM 引用 ==========
 let $logList, $logContainer;
 let $inputText, $btnChunk, $btnCancel, $btnClear, $resultDisplay;
 let $apiBaseUrl, $apiModel, $btnRefreshModels, $modelStatus;
 let $btnOpenFile, $fileInput, $fileInfo;
+let $chunkCountDisplay; // 新增：显示当前分块数量
 
 // 用于取消流式请求
 let currentAbortController = null;
@@ -97,6 +101,12 @@ $(document).ready(function () {
     $btnCancel = $('#btn-cancel');
     $btnClear = $('#btn-clear');
     $resultDisplay = $('#result-display');
+    
+    // 在结果区域顶部添加计数器
+    if ($('#chunk-count-display').length === 0) {
+        $resultDisplay.before('<div id="chunk-count-display" style="padding: 5px 10px; font-size: 12px; color: #666; border-bottom: 1px solid #eee; margin-bottom: 10px; display: none;">当前显示: <span id="current-chunk-count">0</span> 个分块</div>');
+    }
+    $chunkCountDisplay = $('#current-chunk-count');
 
     // 配置面板元素
     $apiBaseUrl = $('#api-base-url');
@@ -469,45 +479,61 @@ async function performChunking(text) {
     resetProgress();
     $resultDisplay.empty();
     $('#stream-output').empty();
+    
+    // 重置全局数据
+    globalChunksData = [];
+    $('#chunk-count-display').show();
+    $chunkCountDisplay.text('0');
 
     const method = CHUNK_CONFIG.method;
     let chunks = [];
 
+    // 定义回调函数，用于实时显示
+    const onChunksFound = (newChunks) => {
+        // 追加到全局数据
+        const startIndex = globalChunksData.length;
+        globalChunksData = globalChunksData.concat(newChunks);
+        
+        // 实时追加显示
+        appendChunksToDisplay(newChunks, startIndex);
+        
+        // 更新统计
+        updateStats(text, globalChunksData);
+        $chunkCountDisplay.text(globalChunksData.length);
+    };
+
     switch (method) {
         case 'semantic':
             logger.info('使用语义分块方法 (LLM)...');
-            chunks = await semanticChunking(text);
+            chunks = await semanticChunking(text, onChunksFound);
             break;
         case 'sentence':
             logger.info('使用句子边界分块方法...');
             chunks = sentenceChunking(text);
+            onChunksFound(chunks); // 非 LLM 方法一次性返回
             break;
         case 'paragraph':
             logger.info('使用段落分块方法...');
             chunks = paragraphChunking(text);
+            onChunksFound(chunks);
             break;
         case 'fixed':
             logger.info('使用固定长度分块方法...');
             chunks = fixedChunking(text);
+            onChunksFound(chunks);
             break;
         default:
             logger.warn(`未知的分块方法: ${method}`);
             return;
     }
 
-    // 显示结果
-    displayChunks(chunks);
-
-    // 更新统计
-    updateStats(text, chunks);
-
-    logger.success(`分块完成，共 ${chunks.length} 个块`);
+    logger.success(`分块完成，共 ${globalChunksData.length} 个块`);
 }
 
 // ========== 分块方法 ==========
 
 // 语义分块 (使用 LLM)
-async function semanticChunking(text) {
+async function semanticChunking(text, onChunksFound) {
     if (!API_CONFIG.model) {
         logger.error('请先选择模型');
         throw new Error('未选择模型');
@@ -520,7 +546,8 @@ async function semanticChunking(text) {
         logger.info(`文本较长 (${text.length} 字符)，已预分为 ${segments.length} 段进行处理`);
     }
 
-    let allChunks = [];
+    // 注意：这里不再维护一个巨大的 allChunks 数组用于返回，而是依赖 globalChunksData 和回调
+    // 但为了保持函数签名一致性，我们还是返回最终结果
     
     try {
         for (let i = 0; i < segments.length; i++) {
@@ -569,21 +596,54 @@ ${segment.text}`;
             // 解析 JSON 响应
             const segmentChunks = parseChunksFromResponse(content);
             
-            // 合并
-            allChunks = allChunks.concat(segmentChunks);
+            // 去重处理：新生成的块需要与全局已有的块进行比对
+            // 这里我们做一个简单的去重：如果新块的内容已经被包含在全局块中，则忽略
+            const uniqueNewChunks = [];
+            for (const chunk of segmentChunks) {
+                const cleanContent = chunk.content.replace(/\s+/g, '');
+                let isDuplicate = false;
+                
+                // 检查全局数据
+                for (const existing of globalChunksData) {
+                    const existingContent = existing.content.replace(/\s+/g, '');
+                    if (existingContent.includes(cleanContent) || cleanContent.includes(existingContent)) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+                
+                // 也要检查本次新生成的块内部是否有重复（虽然不太可能）
+                if (!isDuplicate) {
+                    for (const added of uniqueNewChunks) {
+                        const addedContent = added.content.replace(/\s+/g, '');
+                        if (addedContent.includes(cleanContent) || cleanContent.includes(addedContent)) {
+                            isDuplicate = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!isDuplicate) {
+                    uniqueNewChunks.push(chunk);
+                }
+            }
             
-            // 简单的去重（针对重叠部分）
-            allChunks = deduplicateChunks(allChunks);
+            // 重新编号并回调
+            if (uniqueNewChunks.length > 0) {
+                const startId = globalChunksData.length + 1;
+                uniqueNewChunks.forEach((chunk, idx) => {
+                    chunk.id = startId + idx;
+                    if (!chunk.title) chunk.title = `分块 ${chunk.id}`;
+                });
+                
+                if (onChunksFound) {
+                    onChunksFound(uniqueNewChunks);
+                }
+            }
         }
         
-        // 重新编号
-        allChunks.forEach((chunk, index) => {
-            chunk.id = index + 1;
-            if (!chunk.title) chunk.title = `分块 ${index + 1}`;
-        });
-        
         updateProgress('语义分块完成', 100);
-        return allChunks;
+        return globalChunksData;
         
     } catch (error) {
         resetProgress();
@@ -764,19 +824,24 @@ function fallbackParsing(text) {
     }));
 }
 
-// 显示分块结果
-function displayChunks(chunks) {
-    $resultDisplay.empty();
+// 实时追加显示分块结果（优化版：懒加载内容）
+function appendChunksToDisplay(chunks, startIndex) {
+    if (chunks.length === 0) return;
     
-    if (chunks.length === 0) {
-        $resultDisplay.html('<p style="color: #999; text-align: center;">未生成任何分块</p>');
-        return;
+    // 如果是第一批数据，清空提示
+    if (startIndex === 0) {
+        $resultDisplay.empty();
     }
     
     chunks.forEach((chunk, index) => {
+        // 计算全局索引
+        const globalIndex = startIndex + index;
+        
         const $item = $('<div class="chunk-item"></div>');
         
         const $header = $('<div class="chunk-header"></div>');
+        // 绑定全局索引，用于点击时获取内容
+        $header.data('index', globalIndex);
         
         // 左侧容器
         const $left = $('<div class="chunk-header-left"></div>');
@@ -791,13 +856,47 @@ function displayChunks(chunks) {
         $header.append($left);
         $header.append($meta);
         
+        // 内容容器：初始为空，不直接渲染大量文本
         const $content = $('<div class="chunk-content"></div>');
-        $content.text(chunk.content);
+        
+        // 点击展开/折叠
+        $header.on('click', function() {
+            const $thisContent = $(this).siblings('.chunk-content');
+            
+            // 如果内容为空，说明是第一次展开，从全局数据中加载
+            if ($thisContent.is(':empty')) {
+                const idx = $(this).data('index');
+                const data = globalChunksData[idx];
+                if (data) {
+                    $thisContent.text(data.content);
+                }
+            }
+            
+            $thisContent.toggleClass('expanded');
+        });
         
         $item.append($header);
         $item.append($content);
         $resultDisplay.append($item);
     });
+}
+
+// 显示分块结果（保留旧接口，重定向到 append）
+function displayChunks(chunks) {
+    // 如果是全量显示，先清空
+    $resultDisplay.empty();
+    if (chunks.length === 0) {
+        $resultDisplay.html('<p style="color: #999; text-align: center;">未生成任何分块</p>');
+        return;
+    }
+    // 假设 chunks 已经同步到 globalChunksData（非 LLM 方法需要手动同步）
+    // 如果是 LLM 方法，globalChunksData 已经是最新的
+    // 如果是非 LLM 方法，我们需要确保 globalChunksData 被正确设置
+    if (globalChunksData.length !== chunks.length) {
+        globalChunksData = chunks;
+    }
+    
+    appendChunksToDisplay(chunks, 0);
 }
 
 // 更新统计信息
