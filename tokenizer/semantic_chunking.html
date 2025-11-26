@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语义分块测试 - Semantic Chunking</title>
+    <link rel="stylesheet" href="semantic_chunking.css">
+</head>
+
+<body>
+    <div id="container">
+        <h2>🧩 语义分块测试 - Semantic Chunking</h2>
+
+        <div class="main-layout">
+            <div class="left-column">
+
+                <!-- API 配置面板 -->
+                <div class="config-section">
+                    <h3>🔧 API 配置</h3>
+                    <div class="config-row">
+                        <label for="api-base-url">API 地址:</label>
+                        <input type="text" id="api-base-url" value="http://192.168.31.201:1234/v1"
+                            placeholder="http://192.168.31.201:1234/v1">
+                        <button id="btn-refresh-models" title="刷新模型列表">🔄 刷新</button>
+                    </div>
+                    <div class="config-row">
+                        <label for="api-model">模型:</label>
+                        <select id="api-model">
+                            <option value="">-- 请先刷新模型列表 --</option>
+                        </select>
+                        <span id="model-status" class="status-indicator"></span>
+                    </div>
+                    <div class="config-row">
+                        <label for="api-key">API Key:</label>
+                        <input type="text" id="api-key" value="lm-studio" placeholder="可选，LM Studio 不需要">
+                    </div>
+
+                    <!-- 高级选项 -->
+                    <div class="advanced-toggle" id="advanced-toggle">
+                        <span class="arrow">▶</span>
+                        <span>高级选项</span>
+                    </div>
+                    <div class="advanced-options" id="advanced-options">
+                        <div class="advanced-grid">
+                            <div class="advanced-item">
+                                <label for="opt-temperature">Temperature:</label>
+                                <input type="number" id="opt-temperature" value="0.1" min="0" max="2" step="0.1">
+                            </div>
+                            <div class="advanced-item">
+                                <label for="opt-repeat-penalty">Repeat Penalty:</label>
+                                <input type="number" id="opt-repeat-penalty" value="1.1" min="1" max="2" step="0.1">
+                            </div>
+                            <div class="advanced-item">
+                                <label for="opt-top-k">Top K:</label>
+                                <input type="number" id="opt-top-k" value="40" min="1" max="100" step="1">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 分块配置 -->
+                <div class="chunk-config-section">
+                    <h3>📐 分块配置</h3>
+                    <div class="chunk-config-grid">
+                        <div class="chunk-config-item">
+                            <label for="cfg-max-chunk-size">最大块大小 (字符):</label>
+                            <input type="number" id="cfg-max-chunk-size" value="1000" min="100" max="10000" step="100">
+                        </div>
+                        <div class="chunk-config-item">
+                            <label for="cfg-min-chunk-size">最小块大小 (字符):</label>
+                            <input type="number" id="cfg-min-chunk-size" value="100" min="10" max="1000" step="10">
+                        </div>
+                        <div class="chunk-config-item">
+                            <label for="cfg-similarity-threshold">相似度阈值:</label>
+                            <input type="number" id="cfg-similarity-threshold" value="0.5" min="0" max="1" step="0.05">
+                        </div>
+                        <div class="chunk-config-item">
+                            <label for="cfg-chunking-method">分块方法:</label>
+                            <select id="cfg-chunking-method">
+                                <option value="semantic">语义分块 (LLM)</option>
+                                <option value="sentence">句子边界分块</option>
+                                <option value="paragraph">段落分块</option>
+                                <option value="fixed">固定长度分块</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 输入区域 -->
+                <div class="input-section">
+                    <h3>📝 输入文本</h3>
+                    <div class="file-row">
+                        <button id="btn-open-file">📂 打开本地文件</button>
+                        <input type="file" id="file-input" accept=".txt,.md,.json,.html,.xml" style="display: none;">
+                        <span id="file-info">未选择文件</span>
+                    </div>
+                    <textarea id="input-text" placeholder="请在此粘贴或输入要分块的文本，或点击上方按钮打开本地文件...">人工智能（Artificial Intelligence，简称AI）是计算机科学的一个分支，它企图了解智能的实质，并生产出一种新的能以人类智能相似的方式做出反应的智能机器。
+
+人工智能的研究包括机器人、语言识别、图像识别、自然语言处理和专家系统等。自从人工智能诞生以来，理论和技术日益成熟，应用领域也不断扩大。
+
+深度学习是机器学习的一个子领域，它模仿人脑的神经网络结构，通过多层神经网络来学习数据的复杂表示。深度学习在图像识别、语音识别、自然语言处理等领域取得了突破性进展。
+
+大语言模型（Large Language Model，LLM）是一种基于深度学习的自然语言处理模型，通过在海量文本数据上进行预训练，学习语言的统计规律和语义表示。GPT、BERT、LLaMA等都是典型的大语言模型。</textarea>
+                    <div class="button-row">
+                        <button id="btn-chunk">🚀 开始分块</button>
+                        <button id="btn-cancel" disabled>⏹️ 取消</button>
+                        <button id="btn-clear">🗑️ 清空日志</button>
+                    </div>
+                </div>
+
+                <!-- 分块结果 -->
+                <div class="result-section">
+                    <h3>📊 分块结果</h3>
+                    <div id="result-display">
+                        <p style="color: #999; text-align: center;">分块结果将显示在这里</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="right-column">
+                <!-- 统计信息面板 -->
+                <div id="stats-panel">
+                    <h3>📈 统计信息</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item"><span class="stat-label">📄 原文长度:</span> <span id="stat-original-length">-</span></div>
+                        <div class="stat-item"><span class="stat-label">🧩 分块数量:</span> <span id="stat-chunk-count">-</span></div>
+                        <div class="stat-item"><span class="stat-label">📏 平均块大小:</span> <span id="stat-avg-size">-</span></div>
+                        <div class="stat-item"><span class="stat-label">⏱️ 首Token延迟:</span> <span id="stat-ttft">-</span></div>
+                        <div class="stat-item"><span class="stat-label">⏱️ 总耗时:</span> <span id="stat-total-time">-</span></div>
+                        <div class="stat-item"><span class="stat-label">📥 输入Tokens:</span> <span id="stat-prompt-tokens">-</span></div>
+                        <div class="stat-item"><span class="stat-label">📤 输出Tokens:</span> <span id="stat-completion-tokens">-</span></div>
+                        <div class="stat-item"><span class="stat-label">⚡ 生成速度:</span> <span id="stat-speed">-</span></div>
+                    </div>
+                </div>
+
+                <!-- 分段处理进度条 -->
+                <div id="progress-text"></div>
+
+                <div class="log-section">
+                    <!-- 原始模型输出 -->
+                    <h3>🤖 原始模型输出</h3>
+                    <div id="stream-output"></div>
+
+                    <h3>📋 日志输出</h3>
+                    <div id="log-container">
+                        <ul id="log-list"></ul>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <script src="semantic_chunking.js"></script>
+</body>
+
+</html>
