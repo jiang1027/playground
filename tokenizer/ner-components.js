@@ -190,17 +190,17 @@ function CollapsibleBlock({ title, children, className = '', headerClass = '', d
 }
 
 // ========== 3. LLM配置组件 ==========
-function LLMConfig({ onConfigChange, onLog }) {
-    const [baseUrl, setBaseUrl] = useState('http://192.168.31.201:1234/v1');
-    const [model, setModel] = useState('');
-    const [apiKey, setApiKey] = useState('lm-studio');
+function LLMConfig({ initialConfig, onConfigChange, onLog }) {
+    const [baseUrl, setBaseUrl] = useState(initialConfig.api.baseUrl);
+    const [model, setModel] = useState(initialConfig.api.model);
+    const [apiKey, setApiKey] = useState(initialConfig.api.apiKey);
     const [models, setModels] = useState([]);
     const [status, setStatus] = useState('');
     const [statusType, setStatusType] = useState('');
-    const [showAdvanced, setShowAdvanced] = useState(false);
-    const [temperature, setTemperature] = useState(0.7);
-    const [topK, setTopK] = useState(40);
-    const [repeatPenalty, setRepeatPenalty] = useState(1.1);
+    const [showAdvanced, setShowAdvanced] = useState(initialConfig.ui.showAdvanced);
+    const [temperature, setTemperature] = useState(initialConfig.advanced.temperature);
+    const [topK, setTopK] = useState(initialConfig.advanced.topK);
+    const [repeatPenalty, setRepeatPenalty] = useState(initialConfig.advanced.repeatPenalty);
 
     const updateConfig = () => {
         onConfigChange?.({ 
@@ -216,20 +216,20 @@ function LLMConfig({ onConfigChange, onLog }) {
     const handleBaseUrlChange = (e) => {
         const newBaseUrl = e.target.value.trim();
         setBaseUrl(newBaseUrl);
-        onConfigChange?.({ baseUrl: newBaseUrl, model, apiKey, temperature, topK, repeatPenalty });
+        onConfigChange?.({ baseUrl: newBaseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced });
     };
 
     const handleModelChange = (e) => {
         const newModel = e.target.value;
         setModel(newModel);
-        onConfigChange?.({ baseUrl, model: newModel, apiKey, temperature, topK, repeatPenalty });
+        onConfigChange?.({ baseUrl, model: newModel, apiKey, temperature, topK, repeatPenalty, showAdvanced });
         onLog?.(`已选择模型: ${newModel || '(未选择)'}`, 'info');
     };
 
     const handleApiKeyChange = (e) => {
         const newApiKey = e.target.value.trim() || 'lm-studio';
         setApiKey(newApiKey);
-        onConfigChange?.({ baseUrl, model, apiKey: newApiKey, temperature, topK, repeatPenalty });
+        onConfigChange?.({ baseUrl, model, apiKey: newApiKey, temperature, topK, repeatPenalty, showAdvanced });
     };
 
     const handleTemperatureChange = (e) => {
@@ -251,7 +251,9 @@ function LLMConfig({ onConfigChange, onLog }) {
     };
 
     const toggleAdvanced = () => {
-        setShowAdvanced(!showAdvanced);
+        const newShowAdvanced = !showAdvanced;
+        setShowAdvanced(newShowAdvanced);
+        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced: newShowAdvanced });
     };
 
     const refreshModels = async () => {
@@ -279,7 +281,7 @@ function LLMConfig({ onConfigChange, onLog }) {
             if (modelList.length > 0) {
                 const firstModel = modelList[0].id;
                 setModel(firstModel);
-                onConfigChange?.({ baseUrl, model: firstModel, apiKey, temperature, topK, repeatPenalty });
+                onConfigChange?.({ baseUrl, model: firstModel, apiKey, temperature, topK, repeatPenalty, showAdvanced });
             }
 
             onLog?.(`获取到 ${modelList.length} 个模型`, 'success');
@@ -344,7 +346,7 @@ function LLMConfig({ onConfigChange, onLog }) {
                         step=${0.1}
                         onChange=${(val) => {
                             setTemperature(val);
-                            onConfigChange?.({ baseUrl, model, apiKey, temperature: val, topK, repeatPenalty });
+                            onConfigChange?.({ baseUrl, model, apiKey, temperature: val, topK, repeatPenalty, showAdvanced });
                         }}
                     />
                     <${SliderControl}
@@ -355,7 +357,7 @@ function LLMConfig({ onConfigChange, onLog }) {
                         step=${1}
                         onChange=${(val) => {
                             setTopK(val);
-                            onConfigChange?.({ baseUrl, model, apiKey, temperature, topK: val, repeatPenalty });
+                            onConfigChange?.({ baseUrl, model, apiKey, temperature, topK: val, repeatPenalty, showAdvanced });
                         }}
                     />
                     <${SliderControl}
@@ -366,7 +368,7 @@ function LLMConfig({ onConfigChange, onLog }) {
                         step=${0.1}
                         onChange=${(val) => {
                             setRepeatPenalty(val);
-                            onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty: val });
+                            onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty: val, showAdvanced });
                         }}
                     />
                 </div>
@@ -561,10 +563,59 @@ function LogPanel({ logs = [] }) {
 
 // ========== 9. 主应用组件 ==========
 function App() {
+    // 统一的配置加载函数
+    const loadAppConfig = () => {
+        try {
+            const saved = localStorage.getItem('ner_app_config');
+            if (saved) {
+                return JSON.parse(saved);
+            }
+        } catch (e) {
+            console.error('加载应用配置失败:', e);
+        }
+        // 默认配置
+        return {
+            llm: {
+                api: {
+                    baseUrl: 'http://192.168.31.201:1234/v1',
+                    model: '',
+                    apiKey: 'lm-studio'
+                },
+                advanced: {
+                    temperature: 0.7,
+                    topK: 40,
+                    repeatPenalty: 1.1
+                },
+                ui: {
+                    showAdvanced: false
+                }
+            },
+            layout: {
+                cardOrders: {},
+                cardCollapsed: {}
+            }
+        };
+    };
+
+    // 统一的配置保存函数
+    const saveAppConfig = (newConfig) => {
+        try {
+            localStorage.setItem('ner_app_config', JSON.stringify(newConfig));
+        } catch (e) {
+            console.error('保存应用配置失败:', e);
+        }
+    };
+
+    const initialConfig = loadAppConfig();
+    
+    const [appConfig, setAppConfig] = useState(initialConfig);
     const [config, setConfig] = useState({
-        baseUrl: 'http://192.168.31.201:1234/v1',
-        model: '',
-        apiKey: 'lm-studio'
+        baseUrl: initialConfig.llm.api.baseUrl,
+        model: initialConfig.llm.api.model,
+        apiKey: initialConfig.llm.api.apiKey,
+        temperature: initialConfig.llm.advanced.temperature,
+        topK: initialConfig.llm.advanced.topK,
+        repeatPenalty: initialConfig.llm.advanced.repeatPenalty
     });
     const [stats, setStats] = useState({});
     const [progress, setProgress] = useState('');
@@ -582,6 +633,30 @@ function App() {
     // 配置变更
     const handleConfigChange = (newConfig) => {
         setConfig(newConfig);
+        
+        // 更新整体配置
+        const updatedAppConfig = {
+            ...appConfig,
+            llm: {
+                api: {
+                    baseUrl: newConfig.baseUrl,
+                    model: newConfig.model,
+                    apiKey: newConfig.apiKey
+                },
+                advanced: {
+                    temperature: newConfig.temperature,
+                    topK: newConfig.topK,
+                    repeatPenalty: newConfig.repeatPenalty
+                },
+                ui: {
+                    showAdvanced: newConfig.showAdvanced ?? appConfig.llm.ui.showAdvanced
+                }
+            },
+            layout: appConfig.layout
+        };
+        
+        setAppConfig(updatedAppConfig);
+        saveAppConfig(updatedAppConfig);
     };
 
     // 添加日志
@@ -641,6 +716,7 @@ function App() {
             <h2>NER 概念提取测试</h2>
             <div class="main-layout">
                 <${LLMConfig} 
+                    initialConfig=${appConfig.llm}
                     onConfigChange=${handleConfigChange}
                     onLog=${addLog}
                 />
