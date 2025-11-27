@@ -125,6 +125,15 @@ $(document).ready(function () {
     // 初始状态：取消按钮禁用
     $btnCancelAnalyze.prop('disabled', true);
 
+    // 可折叠区块功能
+    $('.collapsible-header').on('click', function() {
+        const $header = $(this);
+        const $content = $header.next('.collapsible-content');
+        
+        $header.toggleClass('collapsed');
+        $content.toggleClass('collapsed');
+    });
+
     // 刷新模型列表按钮
     $btnRefreshModels.on('click', refreshModelList);
 

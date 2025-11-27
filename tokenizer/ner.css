@@ -10,7 +10,7 @@ body {
 }
 
 #container {
-    max-width: 1200px;
+    max-width: 1400px;
     margin: 0 auto;
     background: white;
     padding: 20px;
@@ -18,107 +18,83 @@ body {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
-/* 两列布局 */
-.main-layout {
-    display: flex;
-    gap: 20px;
-    align-items: flex-start;
-}
-
-.left-column {
-    flex: 0 1 500px;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - 100px);
-}
-
-.right-column {
-    width: 600px;
-    flex-shrink: 0;
-    position: sticky;
-    top: 20px;
-    height: calc(100vh - 100px);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-/* 统计面板在右侧列中不伸缩 */
-.right-column #stats-panel {
-    flex-shrink: 0;
-    margin-top: 0;
-}
-
-.right-column .log-section {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    margin-top: 15px;  /* 与统计面板保持间距 */
-    min-height: 0;  /* 重要：允许 flex 子元素收缩 */
-    overflow: hidden;
-}
-
-.right-column .log-section h3 {
-    flex-shrink: 0;
-    margin: 0;
-    padding: 10px 12px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #555;
-    background-color: #f0f0f0;
-    border: 1px solid #ddd;
-    border-radius: 4px 4px 0 0;
-}
-
-.right-column .log-section h3:not(:first-child) {
-    margin-top: 15px;
-}
-
-.right-column #stream-output {
-    flex-shrink: 0;
-    overflow-y: auto;
-    border-top: none;
-    border-radius: 0 0 4px 4px;
-    margin: 0;
-    height: 120px;
-    height: 145px;
-}
-
-.right-column #log-container {
-    flex: 1;
-    min-height: 100px;
-    overflow-y: auto;
-    border-top: none;
-    border-radius: 0 0 4px 4px;
-}
-
 h2 {
     margin-top: 0;
     color: #333;
 }
 
-/* API 配置面板 */
-.config-section {
-    padding: 15px;
-    background-color: #f8f9fa;
-    border: 1px solid #e9ecef;
-    border-radius: 6px;
-    height: 185px;  /* 固定高度，与右侧统计面板对齐 */
-    flex-shrink: 0;
+/* 响应式两列布局 */
+.main-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
 }
 
-.config-section h3 {
-    margin: 0 0 10px 0;
+@media (max-width: 1024px) {
+    .main-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.left-column,
+.right-column {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    min-width: 0;
+}
+
+/* 统一的可折叠区块样式 */
+.collapsible-block {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background-color: #fff;
+    overflow: hidden;
+}
+
+.collapsible-header {
+    padding: 12px 15px;
+    background-color: #f0f0f0;
+    border-bottom: 1px solid #ddd;
     font-size: 14px;
     font-weight: 600;
-    color: #495057;
+    color: #555;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background-color 0.2s;
 }
 
+.collapsible-header:hover {
+    background-color: #e8e8e8;
+}
+
+.collapsible-header::after {
+    content: '▼';
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
+.collapsible-header.collapsed::after {
+    transform: rotate(-90deg);
+}
+
+.collapsible-content {
+    padding: 15px;
+    transition: max-height 0.3s ease;
+}
+
+.collapsible-content.collapsed {
+    display: none;
+}
+
+/* API配置区块 */
 .config-row {
     display: flex;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     gap: 10px;
 }
 
@@ -132,28 +108,16 @@ h2 {
     color: #666;
 }
 
-.config-row input[type="text"] {
-    flex: 1;
-    padding: 6px 10px;
-    font-size: 13px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-}
-
-.config-row input[type="text"]:focus {
-    outline: none;
-    border-color: #4a90d9;
-}
-
+.config-row input[type="text"],
 .config-row select {
     flex: 1;
     padding: 6px 10px;
     font-size: 13px;
     border: 1px solid #ddd;
     border-radius: 4px;
-    background-color: white;
 }
 
+.config-row input[type="text"]:focus,
 .config-row select:focus {
     outline: none;
     border-color: #4a90d9;
@@ -172,7 +136,6 @@ h2 {
 
 #btn-refresh-models:hover {
     background-color: #f0f0f0;
-    border-color: #ccc;
 }
 
 #btn-refresh-models:disabled {
@@ -201,14 +164,10 @@ h2 {
     background-color: #f8d7da;
 }
 
-.input-section {
-    margin-top: 15px;
-    flex-shrink: 0;
-}
-
+/* 输入文本区域 */
 #input-text {
     width: 100%;
-    height: 135px;
+    height: 120px;
     padding: 10px;
     font-family: inherit;
     font-size: 14px;
@@ -223,225 +182,108 @@ h2 {
     box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
 }
 
+/* 按钮样式 */
 .button-row {
-    margin-top: 8px;
-    margin-bottom: 0;
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+button {
+    padding: 10px 20px;
+    font-size: 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
 }
 
 #btn-analyze {
-    padding: 10px 20px;
-    font-size: 14px;
     font-weight: bold;
     color: white;
     background-color: #4a90d9;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background-color 0.2s;
 }
 
 #btn-analyze:hover {
     background-color: #357abd;
 }
 
-#btn-analyze:disabled {
+#btn-analyze:disabled,
+#btn-cancel-analyze:disabled {
     background-color: #ccc;
     cursor: not-allowed;
 }
 
-#btn-clear-log {
-    padding: 10px 20px;
-    font-size: 14px;
-    color: #666;
-    background-color: #f0f0f0;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-left: 10px;
-    transition: background-color 0.2s;
-}
-
-#btn-clear-log:hover {
-    background-color: #e0e0e0;
-}
-
 #btn-cancel-analyze {
-    padding: 10px 20px;
-    font-size: 14px;
     color: white;
     background-color: #d9534f;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-left: 10px;
-    transition: background-color 0.2s;
 }
 
 #btn-cancel-analyze:hover {
     background-color: #c9302c;
 }
 
-#btn-cancel-analyze:disabled {
-    background-color: #ccc;
-    cursor: not-allowed;
-}
-
-.log-section {
-    margin-top: 0;
-}
-
-.log-section h3 {
-    margin: 15px 0 10px 0;
-    color: #555;
-    font-size: 14px;
-}
-
-/* 通用区块标题样式 */
-.section-title {
-    margin: 0;
-    padding: 10px 12px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #555;
+#btn-clear-log {
+    color: #666;
     background-color: #f0f0f0;
-    border-bottom: 1px solid #ddd;
-    border-radius: 4px 4px 0 0;
-}
-
-#log-container {
-    height: 300px;
-    overflow-y: auto;
     border: 1px solid #ddd;
-    border-radius: 4px;
-    background-color: #fff;
 }
 
-#log-list {
-    list-style: none;
-    margin: 0;
-    padding: 10px;
+#btn-clear-log:hover {
+    background-color: #e0e0e0;
 }
 
-#log-list li {
-    padding: 6px 10px;
-    margin-bottom: 4px;
-    font-family: "Consolas", "Monaco", monospace;
+/* 统计信息面板 */
+.statistics-block.collapsible-block {
+    border-color: #4a90d9;
+}
+
+.statistics-block .stats-header {
+    background: #f0f7ff;
+    border-bottom-color: #4a90d9;
+    color: #2c5aa0;
+}
+
+.statistics-block .collapsible-content {
+    background: #f0f7ff;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
     font-size: 12px;
-    border-radius: 3px;
-    background-color: #fff;
-    border-left: 3px solid #ddd;
-    word-break: break-all;
 }
 
-#log-list li.log-info {
-    border-left-color: #4a90d9;
-}
-
-#log-list li.log-success {
-    border-left-color: #5cb85c;
-    background-color: #f0fff0;
-}
-
-#log-list li.log-error {
-    border-left-color: #d9534f;
-    background-color: #fff0f0;
-}
-
-#log-list li.log-warn {
-    border-left-color: #f0ad4e;
-    background-color: #fffbf0;
-}
-
-.log-time {
-    color: #999;
-    margin-right: 8px;
-}
-
-/* 结果展示区域 */
-.result-section {
-    margin-top: 15px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    background-color: #fff;
-    flex: 1;
-    min-height: 0;
+.stat-item {
     display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    justify-content: space-between;
+    padding: 4px 0;
 }
 
-.result-section h3 {
-    flex-shrink: 0;
-    margin: 0;
-    padding: 10px 12px;
-    font-size: 14px;
-    font-weight: 600;
+.stat-label {
     color: #555;
-    background-color: #f0f0f0;
-    border-bottom: 1px solid #ddd;
 }
 
+.stat-item span:last-child {
+    font-weight: 500;
+    color: #333;
+}
+
+/* 结果显示区域 */
 #result-display {
-    flex: 1;
+    max-height: 400px;
     overflow-y: auto;
-    padding: 10px;
     background-color: #fafafa;
 }
 
-.entity {
-    display: inline-block;
-    padding: 2px 6px;
-    margin: 2px;
-    border-radius: 3px;
-    font-size: 13px;
-}
-
-.entity-PERSON {
-    background-color: #ffcdd2;
-    border: 1px solid #ef9a9a;
-}
-
-.entity-TIME {
-    background-color: #c8e6c9;
-    border: 1px solid #a5d6a7;
-}
-
-.entity-LOCATION {
-    background-color: #bbdefb;
-    border: 1px solid #90caf9;
-}
-
-.entity-ORGANIZATION {
-    background-color: #ffe0b2;
-    border: 1px solid #ffcc80;
-}
-
-.entity-THING {
-    background-color: #e1bee7;
-    border: 1px solid #ce93d8;
-}
-
-.entity-RELATIONSHIP {
-    background-color: #b2ebf2;
-    border: 1px solid #80deea;
-}
-
-.entity-EVENT {
-    background-color: #fff9c4;
-    border: 1px solid #fff176;
-}
-
-/* 实体分组样式 */
 .entity-group {
     margin-bottom: 12px;
     padding: 10px;
-    background-color: #fafafa;
+    background-color: #fff;
     border-radius: 6px;
     border: 1px solid #eee;
-}
-
-.entity-group:last-child {
-    margin-bottom: 0;
 }
 
 .entity-group-header {
@@ -459,70 +301,70 @@ h2 {
     gap: 6px;
 }
 
-/* 统计信息面板 */
-#stats-panel {
-    padding: 15px;
-    border: 1px solid #4a90d9;
-    background: #f0f7ff;
-    border-radius: 6px;
-    height: 160px;  /* 固定高度，与左侧 API 配置面板对齐 */
-    flex-shrink: 0;
-    overflow: hidden;
+.entity {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 13px;
 }
 
-#stats-panel h3 {
-    margin: 0 0 12px 0;
-    color: #2c5aa0;
-    font-size: 14px;
-    font-weight: 600;
-}
+.entity-PERSON { background-color: #ffcdd2; border: 1px solid #ef9a9a; }
+.entity-TIME { background-color: #c8e6c9; border: 1px solid #a5d6a7; }
+.entity-LOCATION { background-color: #bbdefb; border: 1px solid #90caf9; }
+.entity-ORGANIZATION { background-color: #ffe0b2; border: 1px solid #ffcc80; }
+.entity-THING { background-color: #e1bee7; border: 1px solid #ce93d8; }
+.entity-RELATIONSHIP { background-color: #b2ebf2; border: 1px solid #80deea; }
+.entity-EVENT { background-color: #fff9c4; border: 1px solid #fff176; }
 
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);  /* 固定3列 */
-    gap: 6px 12px;
-    font-size: 12px;
-}
-
-.stat-item {
-    padding: 2px 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.stat-label {
-    color: #555;
-}
-
-.stat-item span:last-child {
-    font-weight: 500;
-    color: #333;
-}
-
-/* 原始模型输出 */
-#stream-output {
-    padding: 10px;
-    border: 1px solid #ddd;
-    background: #fff;
-    white-space: pre-wrap;
-    font-family: "Consolas", "Monaco", monospace;
-    font-size: 12px;
-    max-height: 300px;
-    overflow: auto;
-    border-radius: 4px;
-}
-
-/* 分段处理进度条 */
+/* 日志输出区域 */
 #progress-text {
-    height: 18px;
-    margin-top: 8px;
+    padding: 8px;
     border-radius: 3px;
     font-size: 11px;
     color: #555;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(90deg, #d4edda 0%, #d4edda 0%, #e9ecef 0%, #e9ecef 100%);
-    transition: background 0.3s ease;
+    background: #e9ecef;
+    text-align: center;
+    min-height: 18px;
+}
+
+#stream-output {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 10px;
+    background: #fafafa;
+    white-space: pre-wrap;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 12px;
+}
+
+#log-container {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+#log-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+#log-list li {
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 12px;
+    border-radius: 3px;
+    background-color: #fff;
+    border-left: 3px solid #ddd;
+    word-break: break-all;
+}
+
+#log-list li.log-info { border-left-color: #4a90d9; }
+#log-list li.log-success { border-left-color: #5cb85c; background-color: #f0fff0; }
+#log-list li.log-error { border-left-color: #d9534f; background-color: #fff0f0; }
+#log-list li.log-warn { border-left-color: #f0ad4e; background-color: #fffbf0; }
+
+.log-time {
+    color: #999;
+    margin-right: 8px;
 }
