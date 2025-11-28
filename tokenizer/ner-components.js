@@ -27,7 +27,7 @@ function SliderControl({ label, value, min, max, step, onChange }) {
 }
 
 // ========== 2. 通用可折叠区块组件 ==========
-function CollapsibleBlock({ title, children, className = '', headerClass = '', defaultCollapsed = false, draggable = false }) {
+function CollapsibleBlock({ title, children, className = '', headerClass = '', defaultCollapsed = false, draggable = false, cardId = '', onOrderChange }) {
     const [collapsed, setCollapsed] = useState(defaultCollapsed);
     const blockRef = useRef(null);
 
@@ -132,6 +132,16 @@ function CollapsibleBlock({ title, children, className = '', headerClass = '', d
                                 target.style.order = siblingOrder.toString();
                                 hoveredSibling.style.order = targetOrder.toString();
                                 
+                                // 通知父组件顺序变化
+                                if (onOrderChange) {
+                                    const allCards = Array.from(target.parentElement.children)
+                                        .filter(el => el.classList.contains('collapsible-block'))
+                                        .sort((a, b) => parseInt(a.style.order || '0') - parseInt(b.style.order || '0'))
+                                        .map(el => el.getAttribute('data-card-id'))
+                                        .filter(Boolean);
+                                    onOrderChange(allCards);
+                                }
+                                
                                 // 强制重排
                                 target.offsetHeight;
                                 
@@ -177,6 +187,7 @@ function CollapsibleBlock({ title, children, className = '', headerClass = '', d
         <div 
             ref=${blockRef}
             class="collapsible-block ${className} ${draggable ? 'draggable' : ''}"
+            data-card-id=${cardId}
         >
             <div class="collapsible-header ${collapsed ? 'collapsed' : ''} ${headerClass}">
                 <span class="collapsible-title">${title}</span>
@@ -310,89 +321,87 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
     };
 
     return html`
-        <${CollapsibleBlock} title="API 配置" draggable=${true}>
-            <div class="config-row">
-                <label for="api-base-url">API 地址:</label>
-                <input 
-                    type="text" 
-                    id="api-base-url" 
-                    value=${baseUrl}
-                    onBlur=${handleBaseUrlBlur}
-                    onKeyDown=${handleBaseUrlKeyDown}
-                    placeholder="http://192.168.31.201:1234/v1"
+        <div class="config-row">
+            <label for="api-base-url">API 地址:</label>
+            <input 
+                type="text" 
+                id="api-base-url" 
+                value=${baseUrl}
+                onBlur=${handleBaseUrlBlur}
+                onKeyDown=${handleBaseUrlKeyDown}
+                placeholder="http://192.168.31.201:1234/v1"
+            />
+            <button id="btn-refresh-models" onClick=${refreshModels} title="刷新模型列表">
+                🔄 刷新
+            </button>
+        </div>
+        <div class="config-row">
+            <label for="api-model">模型:</label>
+            <select id="api-model" value=${model} onChange=${handleModelChange}>
+                ${models.length === 0 
+                    ? html`<option value="">-- 请先刷新模型列表 --</option>`
+                    : models.map(m => html`<option value=${m.id}>${m.id}</option>`)
+                }
+            </select>
+            ${status && html`<span class="status-indicator ${statusType}">${status}</span>`}
+        </div>
+        <div class="config-row">
+            <label for="api-key">API Key:</label>
+            <input 
+                type="text" 
+                id="api-key" 
+                value=${apiKey}
+                onBlur=${handleApiKeyBlur}
+                onKeyDown=${handleApiKeyKeyDown}
+                placeholder="可选，LM Studio 不需要"
+            />
+        </div>
+        <div class="config-row">
+            <button 
+                class="btn-toggle-advanced" 
+                onClick=${toggleAdvanced}
+                style="width: 100%; text-align: left; padding: 8px 10px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;"
+            >
+                ${showAdvanced ? '▼ 隐藏高级配置' : '▶ 显示高级配置'}
+            </button>
+        </div>
+        ${showAdvanced && html`
+            <div class="advanced-config">
+                <${SliderControl}
+                    label="Temperature"
+                    value=${temperature}
+                    min=${0}
+                    max=${2}
+                    step=${0.1}
+                    onChange=${(val) => {
+                        setTemperature(val);
+                        onConfigChange?.({ baseUrl, model, apiKey, temperature: val, topK, repeatPenalty, showAdvanced });
+                    }}
                 />
-                <button id="btn-refresh-models" onClick=${refreshModels} title="刷新模型列表">
-                    🔄 刷新
-                </button>
-            </div>
-            <div class="config-row">
-                <label for="api-model">模型:</label>
-                <select id="api-model" value=${model} onChange=${handleModelChange}>
-                    ${models.length === 0 
-                        ? html`<option value="">-- 请先刷新模型列表 --</option>`
-                        : models.map(m => html`<option value=${m.id}>${m.id}</option>`)
-                    }
-                </select>
-                ${status && html`<span class="status-indicator ${statusType}">${status}</span>`}
-            </div>
-            <div class="config-row">
-                <label for="api-key">API Key:</label>
-                <input 
-                    type="text" 
-                    id="api-key" 
-                    value=${apiKey}
-                    onBlur=${handleApiKeyBlur}
-                    onKeyDown=${handleApiKeyKeyDown}
-                    placeholder="可选，LM Studio 不需要"
+                <${SliderControl}
+                    label="Top K"
+                    value=${topK}
+                    min=${1}
+                    max=${100}
+                    step=${1}
+                    onChange=${(val) => {
+                        setTopK(val);
+                        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK: val, repeatPenalty, showAdvanced });
+                    }}
+                />
+                <${SliderControl}
+                    label="Repeat Penalty"
+                    value=${repeatPenalty}
+                    min=${1}
+                    max=${2}
+                    step=${0.1}
+                    onChange=${(val) => {
+                        setRepeatPenalty(val);
+                        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty: val, showAdvanced });
+                    }}
                 />
             </div>
-            <div class="config-row">
-                <button 
-                    class="btn-toggle-advanced" 
-                    onClick=${toggleAdvanced}
-                    style="width: 100%; text-align: left; padding: 8px 10px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;"
-                >
-                    ${showAdvanced ? '▼ 隐藏高级配置' : '▶ 显示高级配置'}
-                </button>
-            </div>
-            ${showAdvanced && html`
-                <div class="advanced-config">
-                    <${SliderControl}
-                        label="Temperature"
-                        value=${temperature}
-                        min=${0}
-                        max=${2}
-                        step=${0.1}
-                        onChange=${(val) => {
-                            setTemperature(val);
-                            onConfigChange?.({ baseUrl, model, apiKey, temperature: val, topK, repeatPenalty, showAdvanced });
-                        }}
-                    />
-                    <${SliderControl}
-                        label="Top K"
-                        value=${topK}
-                        min=${1}
-                        max=${100}
-                        step=${1}
-                        onChange=${(val) => {
-                            setTopK(val);
-                            onConfigChange?.({ baseUrl, model, apiKey, temperature, topK: val, repeatPenalty, showAdvanced });
-                        }}
-                    />
-                    <${SliderControl}
-                        label="Repeat Penalty"
-                        value=${repeatPenalty}
-                        min=${1}
-                        max=${2}
-                        step=${0.1}
-                        onChange=${(val) => {
-                            setRepeatPenalty(val);
-                            onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty: val, showAdvanced });
-                        }}
-                    />
-                </div>
-            `}
-        <//>
+        `}
     `;
 }
 
@@ -429,86 +438,76 @@ function UserInput({ onAnalyze, onCancel, onClearLog, onLog, analyzingProp = fal
     };
 
     return html`
-        <${CollapsibleBlock} title="输入文本" draggable=${true}>
-            <textarea 
-                id="input-text" 
-                value=${text}
-                onInput=${handleTextChange}
-                placeholder="请在此粘贴或输入要分析的文本..."
-            />
-            <div class="button-row">
-                <button 
-                    id="btn-analyze" 
-                    onClick=${handleAnalyze}
-                    disabled=${analyzing}
-                >
-                    开始分析
-                </button>
-                <button 
-                    id="btn-cancel-analyze" 
-                    onClick=${handleCancel}
-                    disabled=${!analyzing}
-                >
-                    取消分析
-                </button>
-                <button id="btn-clear-log" onClick=${handleClearLog}>
-                    清空日志
-                </button>
-            </div>
-        <//>
+        <textarea 
+            id="input-text" 
+            value=${text}
+            onInput=${handleTextChange}
+            placeholder="请在此粘贴或输入要分析的文本..."
+        />
+
+        <div class="button-row">
+            <button 
+                id="btn-analyze" 
+                onClick=${handleAnalyze}
+                disabled=${analyzing}
+            >
+                开始分析
+            </button>
+            <button 
+                id="btn-cancel-analyze" 
+                onClick=${handleCancel}
+                disabled=${!analyzing}
+            >
+                取消分析
+            </button>
+            <button id="btn-clear-log" onClick=${handleClearLog}>
+                清空日志
+            </button>
+        </div>
     `;
 }
 
 // ========== 5. 统计信息组件 ==========
 function Statistics({ stats = {} }) {
     return html`
-            <${CollapsibleBlock} 
-                title="📊 统计信息" 
-                className="statistics-block"
-                headerClass="stats-header"
-                draggable=${true}
-            >
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">⏱️ 首Token延迟:</span>
-                        <span>${stats.ttft || '-'}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">⏱️ 总耗时:</span>
-                        <span>${stats.totalTime || '-'}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">📥 输入Tokens:</span>
-                        <span>${stats.promptTokens || '-'}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">📤 输出Tokens:</span>
-                        <span>${stats.completionTokens || '-'}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">📊 总Tokens:</span>
-                        <span>${stats.totalTokens || '-'}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">⚡ 生成速度:</span>
-                        <span>${stats.speed || '-'}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">✅ 完成原因:</span>
-                        <span>${stats.finishReason || '-'}</span>
-                    </div>
-                </div>
-            <//>
-        `;
+        <div class="stats-grid">
+            <div class="stat-item">
+                <span class="stat-label">⏱️ 首Token延迟:</span>
+                <span>${stats.ttft || '-'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">⏱️ 总耗时:</span>
+                <span>${stats.totalTime || '-'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">📥 输入Tokens:</span>
+                <span>${stats.promptTokens || '-'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">📤 输出Tokens:</span>
+                <span>${stats.completionTokens || '-'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">📊 总Tokens:</span>
+                <span>${stats.totalTokens || '-'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">⚡ 生成速度:</span>
+                <span>${stats.speed || '-'}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">✅ 完成原因:</span>
+                <span>${stats.finishReason || '-'}</span>
+            </div>
+        </div>
+    `;
 }
 
 // ========== 6. 模型输出组件 ==========
 function ModelOutput({ progress = '', streamOutput = '' }) {
     return html`
-        <${CollapsibleBlock} title="原始模型输出" draggable=${true}>
-            ${progress && html`<div id="progress-text">${progress}</div>`}
-            <div id="stream-output">${streamOutput}</div>
-        </>
+        ${progress && html`<div id="progress-text">${progress}</div>`}
+        <div id="stream-output">${streamOutput}</div>
     `;
 }
 
@@ -542,14 +541,12 @@ function ResultDisplay({ entities = {} }) {
     const hasEntities = Object.keys(entities).some(key => entities[key]?.length > 0);
 
     return html`
-        <${CollapsibleBlock} title="识别结果" draggable=${true}>
-            <div id="result-display">
-                ${!hasEntities 
-                    ? html`<div style="color: #999; text-align: center; padding: 20px;">暂无识别结果</div>`
-                    : Object.keys(entities).map(type => renderEntityGroup(type, entities[type]))
-                }
-            </div>
-        <//>
+        <div id="result-display">
+            ${!hasEntities 
+                ? html`<div style="color: #999; text-align: center; padding: 20px;">暂无识别结果</div>`
+                : Object.keys(entities).map(type => renderEntityGroup(type, entities[type]))
+            }
+        </div>
     `;
 }
 
@@ -606,11 +603,9 @@ function LogPanel({ onMount }) {
     }, []); // 空依赖数组：只在挂载时执行一次
 
     return html`
-        <${CollapsibleBlock} title="日志输出" draggable=${true}>
-            <div id="log-container" ref=${logContainerRef}>
-                <ul id="log-list" ref=${logListRef}></ul>
-            </div>
-        <//>
+        <div id="log-container" ref=${logContainerRef}>
+            <ul id="log-list" ref=${logListRef}></ul>
+        </div>
     `;
 }
 
@@ -644,8 +639,7 @@ function App() {
                 }
             },
             layout: {
-                cardOrders: {},
-                cardCollapsed: {}
+                cardOrder: ['config', 'input', 'result', 'stats', 'output', 'log']
             }
         };
     };
@@ -726,6 +720,18 @@ function App() {
         addLog('日志已清空', 'info');
     };
 
+    // 处理卡片顺序变化
+    const handleOrderChange = (newOrder) => {
+        const updatedAppConfig = {
+            ...appConfig,
+            layout: {
+                cardOrder: newOrder
+            }
+        };
+        setAppConfig(updatedAppConfig);
+        saveAppConfig(updatedAppConfig);
+    };
+
     // 开始分析
     const handleAnalyze = async (text) => {
         if (!config.model) {
@@ -766,26 +772,83 @@ function App() {
         addLog('分析功能待整合...', 'info');
     };
 
+    // 定义所有卡片组件的映射
+    const cardComponents = {
+        'config': {
+            component: LLMConfig,
+            props: {
+                initialConfig: appConfig.llm,
+                onConfigChange: handleConfigChange,
+                onLog: addLog
+            },
+            title: 'API 配置'
+        },
+        'input': {
+            component: UserInput,
+            props: {
+                onAnalyze: handleAnalyze,
+                onCancel: handleCancel,
+                onClearLog: handleClearLog,
+                onLog: addLog,
+                analyzingProp: analyzing
+            },
+            title: '输入文本'
+        },
+        'result': {
+            component: ResultDisplay,
+            props: {
+                entities: entities
+            },
+            title: '识别结果'
+        },
+        'stats': {
+            component: Statistics,
+            props: {
+                stats: stats
+            },
+            title: '统计信息'
+        },
+        'output': {
+            component: ModelOutput,
+            props: {
+                progress: progress,
+                streamOutput: streamOutput
+            },
+            title: '原始模型输出'
+        },
+        'log': {
+            component: LogPanel,
+            props: {
+                onMount: (methods) => logMethods.current = methods
+            },
+            title: '日志输出'
+        }
+    };
+
+    // 根据配置的顺序渲染卡片
+    const cardOrder = appConfig.layout.cardOrder || ['config', 'input', 'result', 'stats', 'output', 'log'];
+    
     return html`
         <div id="container">
             <h2>NER 概念提取测试</h2>
             <div class="main-layout">
-                <${LLMConfig} 
-                    initialConfig=${appConfig.llm}
-                    onConfigChange=${handleConfigChange}
-                    onLog=${addLog}
-                />
-                <${UserInput}
-                    onAnalyze=${handleAnalyze}
-                    onCancel=${handleCancel}
-                    onClearLog=${handleClearLog}
-                    onLog=${addLog}
-                    analyzingProp=${analyzing}
-                />
-                <${ResultDisplay} entities=${entities} />
-                <${Statistics} stats=${stats} />
-                <${ModelOutput} progress=${progress} streamOutput=${streamOutput} />
-                <${LogPanel} onMount=${(methods) => logMethods.current = methods} />
+                ${cardOrder.map((cardId, index) => {
+                    const card = cardComponents[cardId];
+                    if (!card) return null;
+                    
+                    const CardComponent = card.component;
+                    return html`
+                        <${CollapsibleBlock}
+                            key=${cardId}
+                            cardId=${cardId}
+                            title=${card.title}
+                            draggable=${true}
+                            onOrderChange=${handleOrderChange}
+                        >
+                            <${CardComponent} ...${card.props} />
+                        <//>
+                    `;
+                })}
             </div>
         </div>
     `;
