@@ -266,10 +266,21 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
         onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced: newShowAdvanced });
     };
 
-    const refreshModels = async () => {
+    // 组件挂载时自动验证配置
+    useEffect(() => {
+        if (baseUrl) {
+            // 如果有保存的配置，自动验证
+            refreshModels(true); // 传入 true 表示是初始化验证
+        }
+    }, []); // 只在组件挂载时执行一次
+
+    const refreshModels = async (isInitialValidation = false) => {
         setStatus('加载中...');
         setStatusType('loading');
-        onLog?.(`正在从 ${baseUrl} 获取模型列表...`, 'info');
+        
+        if (!isInitialValidation) {
+            onLog?.(`正在从 ${baseUrl} 获取模型列表...`, 'info');
+        }
 
         try {
             const response = await fetch(`${baseUrl}/models`, {
@@ -288,18 +299,52 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
             setStatus(`${modelList.length} 个模型`);
             setStatusType('success');
 
-            onLog?.(`获取到 ${modelList.length} 个模型`, 'success');
+            if (!isInitialValidation) {
+                onLog?.(`获取到 ${modelList.length} 个模型`, 'success');
+            }
 
-            if (modelList.length > 0) {
+            // 验证已保存的模型是否仍然有效
+            if (modelList.length > 0 && model) {
+                const modelExists = modelList.some(m => m.id === model);
+                if (modelExists) {
+                    // 模型仍然有效，保持选择
+                    onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                    if (isInitialValidation) {
+                        onLog?.(`已验证模型配置: ${model}`, 'success');
+                    }
+                } else {
+                    // 模型已失效，清除选择
+                    setModel('');
+                    onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                    onLog?.(`保存的模型 "${model}" 已不可用，请重新选择`, 'warn');
+                }
+            } else if (modelList.length > 0 && !model) {
+                // 没有保存的模型，自动选择第一个
                 const firstModel = modelList[0].id;
                 setModel(firstModel);
                 onConfigChange?.({ baseUrl, model: firstModel, apiKey, temperature, topK, repeatPenalty, showAdvanced });
-                onLog?.(`已自动选择模型: ${firstModel}`, 'info');
+                if (!isInitialValidation) {
+                    onLog?.(`已自动选择模型: ${firstModel}`, 'info');
+                }
+            } else if (modelList.length === 0 && model) {
+                // 服务器没有模型，清除保存的选择
+                setModel('');
+                onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                onLog?.(`服务器无可用模型`, 'warn');
             }
         } catch (error) {
             setStatus('获取失败');
             setStatusType('error');
             onLog?.(`获取模型列表失败: ${error.message}`, 'error');
+            
+            // 连接失败时，如果有保存的模型也清除（因为无法验证）
+            if (model) {
+                setModel('');
+                onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                if (!isInitialValidation) {
+                    onLog?.(`无法连接到服务器，已清除模型选择`, 'warn');
+                }
+            }
         }
     };
 
@@ -320,7 +365,12 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
         </div>
         <div class="config-row">
             <label for="api-model">模型:</label>
-            <select id="api-model" value=${model} onChange=${handleModelChange}>
+            <select 
+                id="api-model" 
+                value=${model} 
+                onChange=${handleModelChange}
+                style=${!model ? 'border-color: #dc3545; background-color: #fff5f5;' : ''}
+            >
                 ${models.length === 0 
                     ? html`<option value="">-- 请先刷新模型列表 --</option>`
                     : models.map(m => html`<option value=${m.id}>${m.id}</option>`)
@@ -389,17 +439,49 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
 }
 
 // ========== 4. 用户输入组件 ==========
-function UserInput({ onAnalyze, onCancel, onClearLog, onLog, analyzingProp = false }) {
+function UserInput({ onAnalyze, onCancel, onClearLog, onLog, analyzingProp = false, hasModel = false }) {
     const [text, setText] = useState('张三和李四将于明天下午3点在北京会议室讨论新项目的合作事宜。');
     const [analyzing, setAnalyzing] = useState(analyzingProp);
+    const [textLength, setTextLength] = useState(0);
+    const fileInputRef = useRef(null);
 
     // 同步外部传入的 analyzing 状态
     useEffect(() => {
         setAnalyzing(analyzingProp);
     }, [analyzingProp]);
 
+    // 更新文本长度
+    useEffect(() => {
+        setTextLength(text.length);
+    }, [text]);
+
     const handleTextChange = (e) => {
         setText(e.target.value);
+    };
+
+    const handleLoadFile = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileSelected = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.name.endsWith('.txt')) {
+            onLog?.('请选择 .txt 文件', 'warn');
+            return;
+        }
+
+        try {
+            const content = await file.text();
+            setText(content);
+            onLog?.(`已加载文件: ${file.name} (${content.length} 字符)`, 'success');
+        } catch (error) {
+            onLog?.(`加载文件失败: ${error.message}`, 'error');
+        }
+
+        // 清空文件输入，允许重复选择同一文件
+        e.target.value = '';
     };
 
     const handleAnalyze = () => {
@@ -421,6 +503,12 @@ function UserInput({ onAnalyze, onCancel, onClearLog, onLog, analyzingProp = fal
     };
 
     return html`
+        ${textLength > 0 && html`
+            <div style="padding: 8px; background: #f0f8ff; border-radius: 4px; margin-bottom: 10px; font-size: 13px; color: #555;">
+                📄 文本长度: <strong>${textLength}</strong> 字符
+            </div>
+        `}
+        
         <textarea 
             id="input-text" 
             value=${text}
@@ -428,11 +516,28 @@ function UserInput({ onAnalyze, onCancel, onClearLog, onLog, analyzingProp = fal
             placeholder="请在此粘贴或输入要分析的文本..."
         />
 
+        <input 
+            type="file" 
+            ref=${fileInputRef}
+            accept=".txt"
+            style="display: none;"
+            onChange=${handleFileSelected}
+        />
+
         <div class="button-row">
+            <button 
+                id="btn-load-file" 
+                onClick=${handleLoadFile}
+                disabled=${analyzing}
+                title="从文件加载文本"
+            >
+                📁 加载文件
+            </button>
             <button 
                 id="btn-analyze" 
                 onClick=${handleAnalyze}
-                disabled=${analyzing}
+                disabled=${analyzing || !hasModel}
+                title=${!hasModel ? '请先在API配置中刷新并选择模型' : '开始分析文本'}
             >
                 开始分析
             </button>
@@ -524,9 +629,17 @@ function Statistics({ stats = {} }) {
 
 // ========== 6. 模型输出组件 ==========
 function ModelOutput({ progress = '', streamOutput = '' }) {
+    const outputRef = useRef(null);
+
+    // 自动滚动到底部
+    useEffect(() => {
+        if (outputRef.current) {
+            outputRef.current.scrollTop = outputRef.current.scrollHeight;
+        }
+    }, [streamOutput]);
+
     return html`
-        ${progress && html`<div id="progress-text">${progress}</div>`}
-        <div id="stream-output">${streamOutput}</div>
+        <div ref=${outputRef} id="stream-output" style="white-space: pre-wrap; word-wrap: break-word; overflow-y: auto; max-height: 400px; padding: 10px; background: #fafafa; border-radius: 4px;">${streamOutput || '等待模型输出...'}</div>
     `;
 }
 
@@ -859,7 +972,8 @@ function App() {
                 onCancel: handleCancel,
                 onClearLog: handleClearLog,
                 onLog: addLog,
-                analyzingProp: analyzing
+                analyzingProp: analyzing,
+                hasModel: !!config.model
             },
             title: '输入文本'
         },
