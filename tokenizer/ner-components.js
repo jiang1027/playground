@@ -260,24 +260,6 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
         }
     };
 
-    const handleTemperatureChange = (e) => {
-        const newTemp = parseFloat(e.target.value);
-        setTemperature(newTemp);
-        onConfigChange?.({ baseUrl, model, apiKey, temperature: newTemp, topK, repeatPenalty });
-    };
-
-    const handleTopKChange = (e) => {
-        const newTopK = parseInt(e.target.value);
-        setTopK(newTopK);
-        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK: newTopK, repeatPenalty });
-    };
-
-    const handleRepeatPenaltyChange = (e) => {
-        const newPenalty = parseFloat(e.target.value);
-        setRepeatPenalty(newPenalty);
-        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty: newPenalty });
-    };
-
     const toggleAdvanced = () => {
         const newShowAdvanced = !showAdvanced;
         setShowAdvanced(newShowAdvanced);
@@ -306,13 +288,14 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
             setStatus(`${modelList.length} 个模型`);
             setStatusType('success');
 
+            onLog?.(`获取到 ${modelList.length} 个模型`, 'success');
+
             if (modelList.length > 0) {
                 const firstModel = modelList[0].id;
                 setModel(firstModel);
                 onConfigChange?.({ baseUrl, model: firstModel, apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                onLog?.(`已自动选择模型: ${firstModel}`, 'info');
             }
-
-            onLog?.(`获取到 ${modelList.length} 个模型`, 'success');
         } catch (error) {
             setStatus('获取失败');
             setStatusType('error');
@@ -471,30 +454,66 @@ function UserInput({ onAnalyze, onCancel, onClearLog, onLog, analyzingProp = fal
 function Statistics({ stats = {} }) {
     return html`
         <div class="stats-grid">
+            ${stats.currentPhase && html`
+                <div class="stat-item stat-highlight">
+                    <span class="stat-label">🔄 当前阶段:</span>
+                    <span>${stats.currentPhase}</span>
+                </div>
+            `}
+            ${stats.chunksProgress && html`
+                <div class="stat-item stat-highlight">
+                    <span class="stat-label">📑 处理进度:</span>
+                    <span>${stats.chunksProgress}</span>
+                </div>
+            `}
             <div class="stat-item">
                 <span class="stat-label">⏱️ 首Token延迟:</span>
                 <span>${stats.ttft || '-'}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">⏱️ 总耗时:</span>
+                <span class="stat-label">⏱️ 本次耗时:</span>
                 <span>${stats.totalTime || '-'}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">📥 输入Tokens:</span>
+                <span class="stat-label">📥 本次输入:</span>
                 <span>${stats.promptTokens || '-'}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">📤 输出Tokens:</span>
+                <span class="stat-label">📤 本次输出:</span>
                 <span>${stats.completionTokens || '-'}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">📊 总Tokens:</span>
+                <span class="stat-label">📊 本次总计:</span>
                 <span>${stats.totalTokens || '-'}</span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">⚡ 生成速度:</span>
                 <span>${stats.speed || '-'}</span>
             </div>
+            ${stats.accumulatedPromptTokens !== undefined && html`
+                <div class="stat-item stat-accumulated">
+                    <span class="stat-label">📥 累积输入:</span>
+                    <span>${stats.accumulatedPromptTokens}</span>
+                </div>
+            `}
+            ${stats.accumulatedCompletionTokens !== undefined && html`
+                <div class="stat-item stat-accumulated">
+                    <span class="stat-label">📤 累积输出:</span>
+                    <span>${stats.accumulatedCompletionTokens}</span>
+                </div>
+            `}
+            ${stats.accumulatedTotalTokens !== undefined && html`
+                <div class="stat-item stat-accumulated">
+                    <span class="stat-label">📊 累积总计:</span>
+                    <span>${stats.accumulatedTotalTokens}</span>
+                </div>
+            `}
+            ${stats.totalElapsedTime && html`
+                <div class="stat-item stat-accumulated">
+                    <span class="stat-label">⏱️ 累积耗时:</span>
+                    <span>${stats.totalElapsedTime}</span>
+                </div>
+            `}
             <div class="stat-item">
                 <span class="stat-label">✅ 完成原因:</span>
                 <span>${stats.finishReason || '-'}</span>
@@ -672,8 +691,35 @@ function App() {
     
     const abortControllerRef = useRef(null);
     const logMethods = useRef(null);
+    const analyzerRef = useRef(null);
 
     useEffect(() => {
+        // 初始化分析器
+        if (typeof NERAnalyzer !== 'undefined') {
+            analyzerRef.current = new NERAnalyzer({
+                baseUrl: config.baseUrl,
+                model: config.model,
+                apiKey: config.apiKey,
+                temperature: config.temperature,
+                topK: config.topK,
+                repeatPenalty: config.repeatPenalty,
+                onProgress: (message) => setProgress(message),
+                onLog: addLog,
+                onStreamOutput: (chunk) => {
+                    setStreamOutput(prev => prev + chunk);
+                },
+                onStats: (statsData) => setStats(statsData),
+                onPhase1Complete: (result) => {
+                    addLog(`第一阶段完成 - 实体类型: ${result.entityTypes.join(', ')}`, 'success');
+                    addLog(`第一阶段完成 - 关系类型: ${result.relationTypes.join(', ')}`, 'success');
+                },
+                onPhase2Complete: (result) => {
+                    setEntities(result.entities);
+                    addLog(`第二阶段完成 - 提取的实体和关系已更新`, 'success');
+                }
+            });
+        }
+
         // 页面加载后添加初始日志
         setTimeout(() => {
             addLog('页面已加载', 'info');
@@ -683,6 +729,18 @@ function App() {
     // 配置变更
     const handleConfigChange = (newConfig) => {
         setConfig(newConfig);
+        
+        // 更新分析器配置
+        if (analyzerRef.current) {
+            analyzerRef.current.updateConfig({
+                baseUrl: newConfig.baseUrl,
+                model: newConfig.model,
+                apiKey: newConfig.apiKey,
+                temperature: newConfig.temperature,
+                topK: newConfig.topK,
+                repeatPenalty: newConfig.repeatPenalty
+            });
+        }
         
         // 更新整体配置
         const updatedAppConfig = {
@@ -758,18 +816,29 @@ function App() {
 
     // 取消分析
     const handleCancel = () => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            addLog('已取消分析', 'warn');
+        if (analyzerRef.current && analyzerRef.current.isRunning()) {
+            analyzerRef.current.stop();
         }
         setAnalyzing(false);
     };
 
-    // 执行分析（这里需要整合原来的分析逻辑）
+    // 执行分析
     const performAnalysis = async (text) => {
-        // 这里应该整合 ner.js 中的分析逻辑
-        // 暂时留空，后续实现
-        addLog('分析功能待整合...', 'info');
+        if (!analyzerRef.current) {
+            addLog('分析器未初始化', 'error');
+            return;
+        }
+
+        setStreamOutput(''); // 清空之前的输出
+        
+        try {
+            const result = await analyzerRef.current.analyze(text);
+            addLog('分析完成！', 'success');
+        } catch (error) {
+            if (error.message !== '分析已取消') {
+                addLog(`分析失败: ${error.message}`, 'error');
+            }
+        }
     };
 
     // 定义所有卡片组件的映射

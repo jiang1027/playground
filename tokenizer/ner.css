@@ -343,7 +343,7 @@ button {
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 8px;
     font-size: 12px;
 }
@@ -361,6 +361,42 @@ button {
 .stat-item span:last-child {
     font-weight: 500;
     color: #333;
+}
+
+/* 高亮显示当前阶段和进度 */
+.stat-item.stat-highlight {
+    background-color: #e3f2fd;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin: -2px 0;
+}
+
+.stat-item.stat-highlight .stat-label {
+    color: #1976d2;
+    font-weight: 600;
+}
+
+.stat-item.stat-highlight span:last-child {
+    color: #0d47a1;
+    font-weight: 600;
+}
+
+/* 累积统计样式 */
+.stat-item.stat-accumulated {
+    background-color: #fff3e0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin: -2px 0;
+}
+
+.stat-item.stat-accumulated .stat-label {
+    color: #e65100;
+    font-weight: 500;
+}
+
+.stat-item.stat-accumulated span:last-child {
+    color: #bf360c;
+    font-weight: 600;
 }
 
 /* 结果显示区域 */
@@ -420,7 +456,7 @@ button {
 }
 
 #stream-output {
-    max-height: 200px;
+    height: 300px;
     overflow-y: auto;
     padding: 10px;
     background: #fafafa;
@@ -430,7 +466,7 @@ button {
 }
 
 #log-container {
-    max-height: 300px;
+    height: 300px;
     overflow-y: auto;
 }
 
