@@ -212,6 +212,7 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
     const [temperature, setTemperature] = useState(initialConfig.advanced.temperature);
     const [topK, setTopK] = useState(initialConfig.advanced.topK);
     const [repeatPenalty, setRepeatPenalty] = useState(initialConfig.advanced.repeatPenalty);
+    const [maxTokens, setMaxTokens] = useState(initialConfig.advanced.maxTokens || 4000);
 
     const updateConfig = () => {
         onConfigChange?.({ 
@@ -220,7 +221,8 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
             apiKey,
             temperature,
             topK,
-            repeatPenalty
+            repeatPenalty,
+            maxTokens
         });
     };
 
@@ -228,7 +230,7 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
         const newBaseUrl = e.target.value.trim();
         if (newBaseUrl !== baseUrl) {
             setBaseUrl(newBaseUrl);
-            onConfigChange?.({ baseUrl: newBaseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced });
+            onConfigChange?.({ baseUrl: newBaseUrl, model, apiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced });
             onLog?.(`API 地址已更改: ${newBaseUrl}`, 'info');
         }
     };
@@ -242,7 +244,7 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
     const handleModelChange = (e) => {
         const newModel = e.target.value;
         setModel(newModel);
-        onConfigChange?.({ baseUrl, model: newModel, apiKey, temperature, topK, repeatPenalty, showAdvanced });
+        onConfigChange?.({ baseUrl, model: newModel, apiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced });
         onLog?.(`已选择模型: ${newModel || '(未选择)'}`, 'info');
     };
 
@@ -250,7 +252,7 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
         const newApiKey = e.target.value.trim();
         if (newApiKey !== apiKey) {
             setApiKey(newApiKey);
-            onConfigChange?.({ baseUrl, model, apiKey: newApiKey, temperature, topK, repeatPenalty, showAdvanced });
+            onConfigChange?.({ baseUrl, model, apiKey: newApiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced });
         }
     };
 
@@ -263,7 +265,7 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
     const toggleAdvanced = () => {
         const newShowAdvanced = !showAdvanced;
         setShowAdvanced(newShowAdvanced);
-        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced: newShowAdvanced });
+        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced: newShowAdvanced });
     };
 
     // 组件挂载时自动验证配置
@@ -308,28 +310,28 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
                 const modelExists = modelList.some(m => m.id === model);
                 if (modelExists) {
                     // 模型仍然有效，保持选择
-                    onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                    onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced });
                     if (isInitialValidation) {
                         onLog?.(`已验证模型配置: ${model}`, 'success');
                     }
                 } else {
                     // 模型已失效，清除选择
                     setModel('');
-                    onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                    onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced });
                     onLog?.(`保存的模型 "${model}" 已不可用，请重新选择`, 'warn');
                 }
             } else if (modelList.length > 0 && !model) {
                 // 没有保存的模型，自动选择第一个
                 const firstModel = modelList[0].id;
                 setModel(firstModel);
-                onConfigChange?.({ baseUrl, model: firstModel, apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                onConfigChange?.({ baseUrl, model: firstModel, apiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced });
                 if (!isInitialValidation) {
                     onLog?.(`已自动选择模型: ${firstModel}`, 'info');
                 }
             } else if (modelList.length === 0 && model) {
                 // 服务器没有模型，清除保存的选择
                 setModel('');
-                onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced });
                 onLog?.(`服务器无可用模型`, 'warn');
             }
         } catch (error) {
@@ -340,7 +342,7 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
             // 连接失败时，如果有保存的模型也清除（因为无法验证）
             if (model) {
                 setModel('');
-                onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, showAdvanced });
+                onConfigChange?.({ baseUrl, model: '', apiKey, temperature, topK, repeatPenalty, maxTokens, showAdvanced });
                 if (!isInitialValidation) {
                     onLog?.(`无法连接到服务器，已清除模型选择`, 'warn');
                 }
@@ -408,7 +410,7 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
                     step=${0.1}
                     onChange=${(val) => {
                         setTemperature(val);
-                        onConfigChange?.({ baseUrl, model, apiKey, temperature: val, topK, repeatPenalty, showAdvanced });
+                        onConfigChange?.({ baseUrl, model, apiKey, temperature: val, topK, repeatPenalty, maxTokens, showAdvanced });
                     }}
                 />
                 <${SliderControl}
@@ -419,18 +421,29 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
                     step=${1}
                     onChange=${(val) => {
                         setTopK(val);
-                        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK: val, repeatPenalty, showAdvanced });
+                        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK: val, repeatPenalty, maxTokens, showAdvanced });
                     }}
                 />
                 <${SliderControl}
                     label="Repeat Penalty"
                     value=${repeatPenalty}
                     min=${1}
-                    max=${2}
-                    step=${0.1}
+                    max=${2.5}
+                    step=${0.05}
                     onChange=${(val) => {
                         setRepeatPenalty(val);
-                        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty: val, showAdvanced });
+                        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty: val, maxTokens, showAdvanced });
+                    }}
+                />
+                <${SliderControl}
+                    label="Max Tokens"
+                    value=${maxTokens}
+                    min=${1000}
+                    max=${32000}
+                    step=${500}
+                    onChange=${(val) => {
+                        setMaxTokens(val);
+                        onConfigChange?.({ baseUrl, model, apiKey, temperature, topK, repeatPenalty, maxTokens: val, showAdvanced });
                     }}
                 />
             </div>
@@ -764,7 +777,8 @@ function App() {
                 advanced: {
                     temperature: 0.7,
                     topK: 40,
-                    repeatPenalty: 1.1
+                    repeatPenalty: 1.3,
+                    maxTokens: 4000
                 },
                 ui: {
                     showAdvanced: false
@@ -794,7 +808,8 @@ function App() {
         apiKey: initialConfig.llm.api.apiKey,
         temperature: initialConfig.llm.advanced.temperature,
         topK: initialConfig.llm.advanced.topK,
-        repeatPenalty: initialConfig.llm.advanced.repeatPenalty
+        repeatPenalty: initialConfig.llm.advanced.repeatPenalty,
+        maxTokens: initialConfig.llm.advanced.maxTokens || 4000
     });
     const [stats, setStats] = useState({});
     const [progress, setProgress] = useState('');
@@ -816,6 +831,7 @@ function App() {
                 temperature: config.temperature,
                 topK: config.topK,
                 repeatPenalty: config.repeatPenalty,
+                maxTokens: config.maxTokens,
                 onProgress: (message) => setProgress(message),
                 onLog: addLog,
                 onStreamOutput: (chunk) => {
@@ -851,7 +867,8 @@ function App() {
                 apiKey: newConfig.apiKey,
                 temperature: newConfig.temperature,
                 topK: newConfig.topK,
-                repeatPenalty: newConfig.repeatPenalty
+                repeatPenalty: newConfig.repeatPenalty,
+                maxTokens: newConfig.maxTokens
             });
         }
         
@@ -867,7 +884,8 @@ function App() {
                 advanced: {
                     temperature: newConfig.temperature,
                     topK: newConfig.topK,
-                    repeatPenalty: newConfig.repeatPenalty
+                    repeatPenalty: newConfig.repeatPenalty,
+                    maxTokens: newConfig.maxTokens
                 },
                 ui: {
                     showAdvanced: newConfig.showAdvanced ?? appConfig.llm.ui.showAdvanced

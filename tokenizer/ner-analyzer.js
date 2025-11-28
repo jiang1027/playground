@@ -18,6 +18,11 @@ const systemPromptPhase2 = `
 你的任务是从文本中提取指定类型的实体和关系。
 请严格按照指定的实体类型和关系类型进行提取，不要添加其他类型。
 
+重要提示：
+1. 仔细阅读文本，每个实体和关系只输出一次
+2. 提取完所有内容后立即停止，不要重复输出
+3. 如果文本中没有更多实体或关系，直接结束输出
+
 输出格式要求（使用制表符分隔，不要输出多余废话）：
 ENTITY	实体类型	实体名称
 RELATION	关系类型	主体	客体
@@ -37,11 +42,14 @@ class NERAnalyzer {
         this.apiKey = config.apiKey || 'lm-studio';
         this.temperature = config.temperature || 0.7;
         this.topK = config.topK || 40;
-        this.repeatPenalty = config.repeatPenalty || 1.1;
+        this.repeatPenalty = config.repeatPenalty || 1.3; // 提高默认值以防止循环输出
+        this.maxTokens = config.maxTokens || 4000; // 限制最大输出长度
 
         // 文本处理配置
-        this.chunkSize = config.chunkSize || 2000; // 每次处理的文本长度
-        this.overlapSize = config.overlapSize || 200; // 重叠部分长度
+        // this.chunkSize = config.chunkSize || 20000; // 每次处理的文本长度
+        // this.overlapSize = config.overlapSize || 500; // 重叠部分长度
+        this.chunkSize = 20000;
+        this.overlapSize = 500;
 
         // 内部状态
         this.abortController = null;
@@ -76,6 +84,7 @@ class NERAnalyzer {
         if (config.temperature !== undefined) this.temperature = config.temperature;
         if (config.topK !== undefined) this.topK = config.topK;
         if (config.repeatPenalty !== undefined) this.repeatPenalty = config.repeatPenalty;
+        if (config.maxTokens !== undefined) this.maxTokens = config.maxTokens;
         if (config.chunkSize !== undefined) this.chunkSize = config.chunkSize;
         if (config.overlapSize !== undefined) this.overlapSize = config.overlapSize;
     }
@@ -337,6 +346,7 @@ ${chunk}`;
                     temperature: this.temperature,
                     top_k: this.topK,
                     repeat_penalty: this.repeatPenalty,
+                    max_tokens: this.maxTokens,
                     stream: true,
                     stream_options: { include_usage: true }
                 }),
@@ -466,6 +476,7 @@ ${chunk}`;
                     temperature: this.temperature,
                     top_k: this.topK,
                     repeat_penalty: this.repeatPenalty,
+                    max_tokens: this.maxTokens,
                     stream: true,
                     stream_options: { include_usage: true }
                 }),
