@@ -9,92 +9,21 @@
 </head>
 
 <body>
-    <div id="container">
-        <h2>NER 概念提取测试</h2>
+    <div id="app"></div>
 
-        <div class="main-layout">
-            <div class="left-column">
-
-                <!-- API 配置面板 -->
-                <div class="config-section">
-                    <h3>API 配置</h3>
-                    <div class="config-row">
-                        <label for="api-base-url">API 地址:</label>
-                        <input type="text" id="api-base-url" value="http://192.168.31.201:1234/v1"
-                            placeholder="http://192.168.31.201:1234/v1">
-                        <button id="btn-refresh-models" title="刷新模型列表">🔄 刷新</button>
-                    </div>
-                    <div class="config-row">
-                        <label for="api-model">模型:</label>
-                        <select id="api-model">
-                            <option value="">-- 请先刷新模型列表 --</option>
-                        </select>
-                        <span id="model-status" class="status-indicator"></span>
-                    </div>
-                    <div class="config-row">
-                        <label for="api-key">API Key:</label>
-                        <input type="text" id="api-key" value="lm-studio" placeholder="可选，LM Studio 不需要">
-                    </div>
-                </div>
-
-                <div class="input-section">
-                    <textarea id="input-text" placeholder="请在此粘贴或输入要分析的文本...">张三和李四将于明天下午3点在北京会议室讨论新项目的合作事宜。</textarea>
-                    <div class="button-row">
-                        <button id="btn-analyze">开始分析</button>
-                        <button id="btn-cancel-analyze">取消分析</button>
-                        <button id="btn-clear-log">清空日志</button>
-                    </div>
-                </div>
-
-                <div class="result-section" id="result-section">
-                    <h3>识别结果</h3>
-                    <div id="result-display"></div>
-                </div>
-
-            </div>
-
-            <div class="right-column">
-                <!-- 统计信息面板 -->
-                <div id="stats-panel">
-                    <h3>📊 统计信息</h3>
-                    <div class="stats-grid">
-                        <div class="stat-item"><span class="stat-label">⏱️ 首Token延迟:</span> <span
-                                id="stat-ttft">-</span></div>
-                        <div class="stat-item"><span class="stat-label">⏱️ 总耗时:</span> <span
-                                id="stat-total-time">-</span></div>
-                        <div class="stat-item"><span class="stat-label">📥 输入Tokens:</span> <span
-                                id="stat-prompt-tokens">-</span></div>
-                        <div class="stat-item"><span class="stat-label">📤 输出Tokens:</span> <span
-                                id="stat-completion-tokens">-</span></div>
-                        <div class="stat-item"><span class="stat-label">📊 总Tokens:</span> <span
-                                id="stat-total-tokens">-</span></div>
-                        <div class="stat-item"><span class="stat-label">⚡ 生成速度:</span> <span id="stat-speed">-</span>
-                        </div>
-                        <div class="stat-item"><span class="stat-label">✅ 完成原因:</span> <span
-                                id="stat-finish-reason">-</span></div>
-                    </div>
-                </div>
-                
-                <!-- 分段处理进度条 -->
-                <div id="progress-text"></div>
-
-                <div class="log-section">
-                    <!-- 原始模型输出 -->
-                    <h3>原始模型输出</h3>
-                    <div id="stream-output"></div>
-
-                    <h3>日志输出</h3>
-                    <div id="log-container">
-                        <ul id="log-list"></ul>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
-    <script src="ner.js"></script>
+    <!-- Preact and HTM (standalone版本，无需模块系统) -->
+    <script src="https://unpkg.com/htm@3.1.1/preact/standalone.umd.js"></script>
+    
+    <!-- interact.js 拖拽库 -->
+    <script src="https://unpkg.com/interactjs@1.10.19/dist/interact.min.js"></script>
+    
+    <!-- 组件定义 -->
+    <script src="ner-components.js"></script>
+    
+    <!-- 初始化应用 -->
+    <script>
+        htmPreact.render(htmPreact.html`<${App} />`, document.getElementById('app'));
+    </script>
 </body>
 
 </html>
