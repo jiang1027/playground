@@ -213,10 +213,19 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
         });
     };
 
-    const handleBaseUrlChange = (e) => {
+    const handleBaseUrlBlur = (e) => {
         const newBaseUrl = e.target.value.trim();
-        setBaseUrl(newBaseUrl);
-        onConfigChange?.({ baseUrl: newBaseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced });
+        if (newBaseUrl !== baseUrl) {
+            setBaseUrl(newBaseUrl);
+            onConfigChange?.({ baseUrl: newBaseUrl, model, apiKey, temperature, topK, repeatPenalty, showAdvanced });
+            onLog?.(`API 地址已更改: ${newBaseUrl}`, 'info');
+        }
+    };
+
+    const handleBaseUrlKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.target.blur(); // 按回车时失去焦点，触发 onBlur
+        }
     };
 
     const handleModelChange = (e) => {
@@ -226,10 +235,18 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
         onLog?.(`已选择模型: ${newModel || '(未选择)'}`, 'info');
     };
 
-    const handleApiKeyChange = (e) => {
-        const newApiKey = e.target.value.trim() || 'lm-studio';
-        setApiKey(newApiKey);
-        onConfigChange?.({ baseUrl, model, apiKey: newApiKey, temperature, topK, repeatPenalty, showAdvanced });
+    const handleApiKeyBlur = (e) => {
+        const newApiKey = e.target.value.trim();
+        if (newApiKey !== apiKey) {
+            setApiKey(newApiKey);
+            onConfigChange?.({ baseUrl, model, apiKey: newApiKey, temperature, topK, repeatPenalty, showAdvanced });
+        }
+    };
+
+    const handleApiKeyKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.target.blur(); // 按回车时失去焦点，触发 onBlur
+        }
     };
 
     const handleTemperatureChange = (e) => {
@@ -300,7 +317,8 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
                     type="text" 
                     id="api-base-url" 
                     value=${baseUrl}
-                    onInput=${handleBaseUrlChange}
+                    onBlur=${handleBaseUrlBlur}
+                    onKeyDown=${handleBaseUrlKeyDown}
                     placeholder="http://192.168.31.201:1234/v1"
                 />
                 <button id="btn-refresh-models" onClick=${refreshModels} title="刷新模型列表">
@@ -323,7 +341,8 @@ function LLMConfig({ initialConfig, onConfigChange, onLog }) {
                     type="text" 
                     id="api-key" 
                     value=${apiKey}
-                    onInput=${handleApiKeyChange}
+                    onBlur=${handleApiKeyBlur}
+                    onKeyDown=${handleApiKeyKeyDown}
                     placeholder="可选，LM Studio 不需要"
                 />
             </div>
@@ -535,27 +554,61 @@ function ResultDisplay({ entities = {} }) {
 }
 
 // ========== 8. 日志组件 ==========
-function LogPanel({ logs = [] }) {
+function LogPanel({ onMount }) {
     const logContainerRef = useRef(null);
+    const logListRef = useRef(null);
+    const maxLogs = 1000; // 最多保留 1000 条日志
 
     useEffect(() => {
-        // 自动滚动到底部
-        if (logContainerRef.current) {
-            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+        // 组件挂载时，将方法暴露给父组件
+        // 空依赖数组确保只在组件挂载时执行一次，避免每次渲染都重新注册方法
+        if (onMount) {
+            onMount({
+                appendLog: (message, type = 'info') => {
+                    if (!logListRef.current) return;
+                    
+                    const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+                    
+                    // 创建日志项
+                    const li = document.createElement('li');
+                    li.className = `log-${type}`;
+                    
+                    const timeSpan = document.createElement('span');
+                    timeSpan.className = 'log-time';
+                    timeSpan.textContent = `[${time}]`;
+                    
+                    const textNode = document.createTextNode(` ${message}`);
+                    
+                    li.appendChild(timeSpan);
+                    li.appendChild(textNode);
+                    
+                    // 添加到列表
+                    logListRef.current.appendChild(li);
+                    
+                    // 限制日志数量
+                    const logItems = logListRef.current.children;
+                    if (logItems.length > maxLogs) {
+                        logListRef.current.removeChild(logItems[0]);
+                    }
+                    
+                    // 自动滚动到底部
+                    if (logContainerRef.current) {
+                        logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+                    }
+                },
+                clearLogs: () => {
+                    if (logListRef.current) {
+                        logListRef.current.innerHTML = '';
+                    }
+                }
+            });
         }
-    }, [logs]);
+    }, []); // 空依赖数组：只在挂载时执行一次
 
     return html`
         <${CollapsibleBlock} title="日志输出" draggable=${true}>
             <div id="log-container" ref=${logContainerRef}>
-                <ul id="log-list">
-                    ${logs.map((log, index) => html`
-                        <li key=${index} class="log-${log.type}">
-                            <span class="log-time">[${log.time}]</span>
-                            ${log.message}
-                        </li>
-                    `)}
-                </ul>
+                <ul id="log-list" ref=${logListRef}></ul>
             </div>
         <//>
     `;
@@ -621,13 +674,16 @@ function App() {
     const [progress, setProgress] = useState('');
     const [streamOutput, setStreamOutput] = useState('');
     const [entities, setEntities] = useState({});
-    const [logs, setLogs] = useState([]);
     const [analyzing, setAnalyzing] = useState(false);
     
     const abortControllerRef = useRef(null);
+    const logMethods = useRef(null);
 
     useEffect(() => {
-        addLog('页面已加载', 'info');
+        // 页面加载后添加初始日志
+        setTimeout(() => {
+            addLog('页面已加载', 'info');
+        }, 100);
     }, []);
 
     // 配置变更
@@ -659,15 +715,14 @@ function App() {
         saveAppConfig(updatedAppConfig);
     };
 
-    // 添加日志
+    // 添加日志（直接操作 DOM，不触发组件重渲染）
     const addLog = (message, type = 'info') => {
-        const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-        setLogs(prevLogs => [...prevLogs, { time, message, type }]);
+        logMethods.current?.appendLog(message, type);
     };
 
     // 清空日志
     const handleClearLog = () => {
-        setLogs([]);
+        logMethods.current?.clearLogs();
         addLog('日志已清空', 'info');
     };
 
@@ -730,7 +785,7 @@ function App() {
                 <${ResultDisplay} entities=${entities} />
                 <${Statistics} stats=${stats} />
                 <${ModelOutput} progress=${progress} streamOutput=${streamOutput} />
-                <${LogPanel} logs=${logs} />
+                <${LogPanel} onMount=${(methods) => logMethods.current = methods} />
             </div>
         </div>
     `;
