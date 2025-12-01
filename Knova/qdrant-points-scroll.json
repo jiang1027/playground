@@ -1,0 +1,15 @@
+{
+  "filter": {
+    "must": [
+      {
+        "key": "status",
+        "match": {
+          "value": "Updated"
+        }
+      }
+    ]
+  },
+  "with_vector": true,
+  "with_payload": true,
+  "limit": 50
+}
