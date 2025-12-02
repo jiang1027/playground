@@ -1,8 +1,7 @@
-你是一个只输出 JSON 对象的 API 接口。你的任务是严格分析图片内容，并以指定的 JSON 格式返回分析结果。你不能添加任何额外的解释或Markdown标记（例如 "```json"）。
+```markdown
+这是一本图书的内页。请注意，本页的起始内容可能不是一个完整的句子。你的核心任务是：**完整提取图片中的文字**，不依赖于前一页的上下文。
 
-这是一本图书的内页。请注意，本页的起始内容可能不是一个完整的句子。你的核心任务是：**基于本页内容，生成一个独立的、逻辑上完整的摘要**，不依赖于前一页的上下文。
-
-1. **文字内容提取**: 提取并总结图片中所有的中文文本。对于连续的段落，请高度总结核心观点；对于列表或标题，请直接列出。将结果作为 `summaryText` 字段的值。
+1. **文字内容提取**: 提取图片中所有的中文文本，不做任何修改和删减。将结果作为`bookText`字段的值。如果图片中没有文字内容，请将此字段留空。
 
 2. **图片内容描述**: 详细描述图片中除文本外的所有图形元素（如图表、插图等）的功能和内容。将结果作为 `imageDescription` 字段的值。如果图片没有图形，请将此字段留空。
 
@@ -12,7 +11,89 @@
 
 {
   "bookTitle": "(此处填写图书名称，如果没有内容，则留空)",
-  "summaryText": "(此处填写文本总结内容，如果没有内容，则留空)",
+  "bookText": "(此处填写提取的中文文本内容，如果没有内容，则留空)",
   "imageDescription": "(此处填写图片描述，如果没有内容，则留空)"
 }
+```
 
+```JSON
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://example.com/schemas/book-page-analysis.json",
+  "title": "Book Page Analysis Result",
+  "description": "JSON schema for analyzing a single page of a book, extracting text, image description, and book title.",
+  "type": "object",
+  
+  "properties": {
+    "bookTitle": {
+      "type": "string",
+      "description": "完整提取的图书封面名称。如果图片不是封面，则留空。",
+      "default": ""
+    },
+    "bookText": {
+      "type": "string",
+      "description": "完整提取的图片中的所有中文文本内容，不做任何修改和删减。如果图片中没有文本，则留空。",
+      "default": ""
+    },
+    "imageDescription": {
+      "type": "string",
+      "description": "对图片中除文本外的所有图形元素（如图表、插图等）的功能和内容的详细描述。如果图片没有图形元素，则留空。",
+      "default": ""
+    }
+  },
+  
+  "required": [
+    "bookTitle",
+    "bookText",
+    "imageDescription"
+  ],
+  
+  "additionalProperties": false
+}
+```
+
+
+"model": $('Configurations').item.json.modelName,
+"max_tokens": 16384,
+"messages": [ 
+  { 
+    "role": "user", 
+    "content": [
+      { "type": "image_url", "image_url": { "url": $json.llmInput.image  } },
+      { "type": "text", "text":  $json.llmInput.prompt }
+    ],
+  },  
+
+```JSON
+{ 
+    "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+        "name": "book_page_analysis", 
+        "strict": true,
+        "schema": {
+            "type": "object",
+            "properties": {
+            "bookTitle": {
+                "type": "string",
+                "description": "完整提取的图书封面名称。如果留空则为 ''。"
+            },
+            "bookText": {
+                "type": "string",
+                "description": "完整提取的图片中的所有中文文本内容。如果留空则为 ''。"
+            },
+            "imageDescription": {
+                "type": "string",
+                "description": "对图片中除文本外的所有图形元素的功能和内容的详细描述。如果留空则为 ''。"
+            }
+            },
+            "required": [
+            "bookTitle",
+            "bookText",
+            "imageDescription"
+            ]
+        }
+        }
+    }
+}
+```

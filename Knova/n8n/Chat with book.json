@@ -1,0 +1,216 @@
+{
+  "name": "Chat with book",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.textEmbedUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"model\": \"bge-m3:latest\",\n  \"prompt\": $('Webhook').item.json.body.message,\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "1b94112d-268b-4384-8756-b2f62e07d804",
+      "name": "Question embedding"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configurations').item.json.qdrantBaseUrl }}/points/search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n\"vector\": $json.embedding,\n\"limit\": 5,\n\"with_payload\": true,\n\"with_vector\": false\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "f06c45e6-d9ec-46d0-aafc-2e9b27a21388",
+      "name": "Qdrant search"
+    },
+    {
+      "parameters": {
+        "jsCode": "const searchResults = $input.first().json.result\n\nlet context = \"\";\n\n// 遍历所有检索到的 Point\nfor (const result of searchResults) {\n    // Qdrant HTTP 结果中，payload 是 result 对象下的一个键\n    const payload = result.payload; \n    \n    // 从 Payload 中提取关键信息\n    const summary = payload.summaryText;\n    const bookId = payload.book_id;\n    const pageNum = payload.page_number;\n    \n    // 构造检索到的上下文片段\n    context += `来源: [${bookId} - 页面 ${pageNum}] 摘要: ${summary}\\n---\\n`;\n}\n\n// 保留原始的用户问题（从 C1 Chat Trigger 节点继承而来）\nreturn [{\n    json: {\n        originalQuery: $('Webhook').first().json.body.message,\n        retrievalContext: context\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "237490de-f696-441e-b0ec-949e2993df16",
+      "name": "Construct LLM chat object"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configurations').item.json.baseUrl }}/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n\"model\": \"qwen3-vl:30b\",\n\"max_tokens\": 16384,\n\"messages\": [\n  { \"role\": \"system\", \"content\": \"你是一位专业的知识助理，请根据提供的上下文信息，简洁、准确地回答用户的问题。如果上下文中没有足够的信息，请礼貌地告知用户。\" },\n  { \"role\": \"user\", \"content\": \"上下文信息:\\n\" + $json.retrievalContext + \"\\n\\n用户提问: \" + $json.originalQuery }\n]\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        832,
+        0
+      ],
+      "id": "c036ce3e-c07e-4c68-9928-7b2e81ed72e7",
+      "name": "LLM chat"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "knova_chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        192,
+        -256
+      ],
+      "id": "6e2f7fe0-ff19-4c6c-92c6-7a8294461403",
+      "name": "Webhook",
+      "webhookId": "81e232f9-23fd-4bfd-826f-28bc284d04be"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "100d6791-94dd-41e5-9877-24c4c9f79b6c",
+              "name": "qdrantBaseUrl",
+              "value": "https://qdrant.weifu.heiyu.space/collections/KnoVa_Raw_Pages",
+              "type": "string"
+            },
+            {
+              "id": "3ff3306e-042d-4524-8c05-7c5106122116",
+              "name": "textEmbedUrl",
+              "value": "http://192.168.31.247:11434/api/embeddings",
+              "type": "string"
+            },
+            {
+              "id": "04e1264b-6d6b-4b8d-9372-74fd60742fba",
+              "name": "baseUrl",
+              "value": "http://192.168.31.247:11434",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        416,
+        -256
+      ],
+      "id": "7eec10ac-fabb-44c5-9df3-43d2e30720d1",
+      "name": "Configurations"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "59cf7637-61b5-4779-9e6e-910580867c86",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Question embedding": {
+      "main": [
+        [
+          {
+            "node": "Qdrant search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant search": {
+      "main": [
+        [
+          {
+            "node": "Construct LLM chat object",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construct LLM chat object": {
+      "main": [
+        [
+          {
+            "node": "LLM chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM chat": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Configurations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configurations": {
+      "main": [
+        [
+          {
+            "node": "Question embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8ce1ff57-b03e-45c8-aa3e-f777f62718b4",
+  "meta": {
+    "instanceId": "5ccdb66910dcc080eb68bdbcd615049ccc64fe0226bdf342573f2de64ae645cb"
+  },
+  "id": "0rDJoa0kpwZu86nD",
+  "tags": []
+}

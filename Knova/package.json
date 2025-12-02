@@ -8,12 +8,15 @@
   },
   "scripts": {
     "start": "node server.js",
+    "upload": "node book_upload.js",
+    "chat": "node book_chat.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "uuid": "^13.0.0"
   }
 }

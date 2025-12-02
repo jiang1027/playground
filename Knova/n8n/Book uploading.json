@@ -1,0 +1,221 @@
+{
+  "name": "Book uploading",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "knova-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        0
+      ],
+      "id": "82935347-a576-4423-8233-438a7da08d26",
+      "name": "Webhook",
+      "webhookId": "b7db07c7-6b35-405a-a2ca-493d7dd9ea21"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "pages",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "38879625-e96d-4d04-83ae-2fa37052aec6",
+      "name": "Split page object"
+    },
+    {
+      "parameters": {
+        "action": "generate",
+        "dataPropertyName": "id"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "0038036e-b1e5-444d-9742-da3264a6dd53",
+      "name": "Add id property with UUID string for Qdrant"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 模式: Run Once for All Items\n\nconst inputItems = $input.all(); \nconst pointsArray = []; \n// 关键修正：创建一个 1024 维度的零向量数组作为占位符\nconst zeroVector = new Array(1024).fill(0.0); \n\nfor (const item of inputItems) {\n    const pageData = item.json;\n    \n    // 从输入中提取数据\n    const bookTitle = pageData.bookTitle; \n    const pageNumber = pageData.page;\n    \n    // bookId 是 Payload 字段 (Keyword)\n    const bookId = pageData.bookId; \n\n    // 构建单个 Qdrant Point 对象\n    pointsArray.push({\n        \"id\": pageData.id, \n        \"payload\": {\n            \"book_id\": bookId,\n            \"page_number\": pageNumber,\n            \"imageUrl\": pageData.image,\n            \"status\": \"Uploaded\", \n            \"book_title\": bookTitle\n        },\n        // 关键修正 2: Vector 必须是 1024 维度的数组\n        \"vector\": zeroVector \n    });\n}\n\n// 返回一个 Item，包含我们构建好的 Points 数组\nreturn [{\n    json: {\n        points: pointsArray\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        224
+      ],
+      "id": "5349f956-ad4b-4cf2-876a-50e83172e0f4",
+      "name": "Convert to Qdrant JSON format"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Configuration').item.json.qdrantBaseUrl }}/points?wait=true",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Convert to Qdrant JSON format').item.json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        624,
+        224
+      ],
+      "id": "a48914be-3497-44e5-8cff-50e85a2fe7c2",
+      "name": "Upsert Points"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuration').item.json.qdrantBaseUrl }}/points/delete ",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { \n  let cond = $json.points.map( (point) => {\n    return {\n      \"must\": [ \n        { \"key\": \"book_id\", \"match\": { \"value\": point.payload.book_id } },\n        { \"key\": \"page_number\", \"match\": { \"value\": point.payload.page_number } },\n      ]\n    };\n  });\n  return { \"filter\": { \n    \"should\": cond\n  } };\n})()}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        416,
+        224
+      ],
+      "id": "930a39d0-de04-4bac-ab13-318e222b5fc5",
+      "name": "Delete Old Points"
+    },
+    {
+      "parameters": {
+        "jsCode": "const bookTitle = $('Webhook').first().json.body.title;\nconst bookId = $('Webhook').first().json.body.bookId;\nconst pages = $('Webhook').first().json.body.pages;\n\n// 为每页添加 bookTitle 字段\nfor (const page of pages) {\n  page.bookTitle = bookTitle;\n  page.bookId = bookId;\n}\n\n// 确保输出的结构和原结构保持一致，但 pages 数组内部被修改了\nreturn {\n  \"title\": bookTitle,\n  \"bookId\": bookId,\n  \"pages\": pages,\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "3b97c74b-a609-499d-8002-f7890b85aeb7",
+      "name": "Add book meta info to page objects",
+      "notes": "把书籍名称添加到每一个page对象中。"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"qdrantBaseUrl\": \"https://qdrant.weifu.heiyu.space/collections/Knova\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        0
+      ],
+      "id": "61015549-1908-4651-828e-d638dfe62ad5",
+      "name": "Configuration"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split page object": {
+      "main": [
+        [
+          {
+            "node": "Add id property with UUID string for Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add id property with UUID string for Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Convert to Qdrant JSON format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to Qdrant JSON format": {
+      "main": [
+        [
+          {
+            "node": "Delete Old Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Old Points": {
+      "main": [
+        [
+          {
+            "node": "Upsert Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add book meta info to page objects": {
+      "main": [
+        [
+          {
+            "node": "Split page object",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "Add book meta info to page objects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "d01f5e92-a376-4085-8bd8-68020690ac4b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5ccdb66910dcc080eb68bdbcd615049ccc64fe0226bdf342573f2de64ae645cb"
+  },
+  "id": "jntzDcuoAnC8lP3M",
+  "tags": []
+}

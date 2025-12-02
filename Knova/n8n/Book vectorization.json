@@ -1,0 +1,435 @@
+{
+  "name": "Book vectorization",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        368,
+        -224
+      ],
+      "id": "9ff3ab13-06fa-47fc-a9e2-55f318a981e8",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "Replace Me",
+      "typeVersion": 1,
+      "position": [
+        1264,
+        688
+      ],
+      "id": "9f0cf53c-3c55-4c4a-96fc-9b2536b6c195"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.qdrantBaseUrl }}/points/scroll",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ \n{\n  \"filter\": {\n    \"must\": [\n      {\n        \"key\": \"status\",\n        \"match\": {\n          \"value\": \"Uploaded\"\n        }\n      }\n    ]\n  },\n  \"with_payload\": true,\n  \"limit\": $json.numberOfJobs,\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        832,
+        -224
+      ],
+      "id": "b82450d8-1fb0-45f8-a7cc-367ed8bccb65",
+      "name": "Scroll Updated Points"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "result.points",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -224
+      ],
+      "id": "23a05eb9-05c8-4805-9359-7843460e0192",
+      "name": "Split points"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        608,
+        0
+      ],
+      "id": "c8ddb8c2-a0ec-4c77-a3a3-d004ebfdfc14",
+      "name": "Process points one by one"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// B4: 从单个 Qdrant Point Item 中提取 Point ID 和 Base64 数据\nconst qdrantPoint = $json;\n\n// 1. 提取关键数据：\n// Point ID 用于后续 Upsert 覆盖旧数据\nconst pointId = $json.id;\n\n// Base64 图像数据用于发送给 LLM Vision 模型\nconst base64Image = qdrantPoint.payload.base64Image; \n\n// 原始的 book_id, page_number 等 payload 数据也保留下来，以备后续使用或调试\nconst originalPayload = qdrantPoint.payload;\n\nconst messages = [ \n  { \n    \"role\": \"user\", \n    \"content\": [\n      { \"type\": \"image_url\", \"image_url\": { \"url\": base64Image } },\n      { \"type\": \"text\", \"text\":  $('Configurations').item.json.systemPrompt }\n    ],\n  },  \n];\n\nconst engineName = $('Configurations').item.json.engineName;\n\nconst llmInput = {\n  \"model\": $('Configurations').item.json.modelName,\n  \"max_tokens\": 16384,\n  \"messages\": messages,\n};\n\nif (engineName == \"lmstudio\") {\n  llmInput.response_format = JSON.parse($('Configurations').item.json.responseFormat);\n} else if (engineName == \"ollama\") {\n  llmInput.format = JSON.parse($('Configurations').item.json.jsonFormat);\n}\n\n// 3. 返回包含所有必需数据的 Item\nreturn {\n    json: {\n        // 用于更新 Qdrant 的关键标识符\n        pointId: pointId,\n        \n        // 原始 Point 的 payload 数据 (包含 book_id, page_number, base64_image)\n        originalPayload: originalPayload,\n        \n        // LLM Vision 模型所需的输入数据\n        llmInput: llmInput,\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        240
+      ],
+      "id": "affc885d-d6c8-4411-8516-2dbff2e8ce49",
+      "name": "Construct point object with prompt text"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configurations').item.json.ollamaBaseUrl }}/v1/chat/completions ",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.llmInput  }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1040,
+        240
+      ],
+      "id": "504e0d8f-a3b3-40e2-b62c-692668cabd05",
+      "name": "qwen3-vl completion"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "let pageInfo = $json.choices[0].message.content;\nlet pointId = $('Construct point object with prompt text').item.json.pointId;\nconst originalPayload = $('Construct point object with prompt text').item.json.originalPayload;\n\nreturn {\n  pointId: pointId,\n  pageInfo: pageInfo,\n  originalPayload: originalPayload\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        464
+      ],
+      "id": "3ba6314e-dfb3-4e6b-adca-a0beb6ed3491",
+      "name": "Construct object with LLM response"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configurations').item.json.embeddingServerUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ \n{\n\"model\": \"bge-m3:latest\",\n\"prompt\": $json.pageInfo,\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1040,
+        464
+      ],
+      "id": "4d4281d5-5a58-4563-b29c-cce26dc378ca",
+      "name": "Embedding response text"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const originalPayload = $('Construct object with LLM response').item.json.originalPayload;\n\nconst qdrantPoint = {\n  \"id\": $('Construct object with LLM response').item.json.pointId,\n  \"vector\": $json.embedding,\n  \"payload\": {\n    \"book_id\": originalPayload.book_id,\n    \"page_number\": originalPayload.page_number,\n    \"pageInfo\": $('Construct object with LLM response').item.json.pageInfo,\n    \"status\": \"Vectorized\",\n  },\n};\n\nreturn {\n    json: {\n        \"points\": [qdrantPoint]\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        688
+      ],
+      "id": "db76490b-6e46-4523-b70e-fd50584fd425",
+      "name": "Construct Qdrant Upsert object"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Configurations').item.json.qdrantBaseUrl }}/points?wait=true",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1040,
+        688
+      ],
+      "id": "11517d6c-103d-468d-8e39-8e670119b6e1",
+      "name": "Upsert points"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.payload.imageUrl }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        832,
+        16
+      ],
+      "id": "dae446f0-5a8c-43fb-8c2b-e50887f75aab",
+      "name": "Get book image"
+    },
+    {
+      "parameters": {
+        "jsCode": "let binaryData = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst base64String = Buffer.from(binaryData).toString('base64');\n\nconst base64Image = 'data:image/jpeg;base64,' + base64String;\nconst payload = $input.first().json.payload;\npayload.base64Image = base64Image;\n\nreturn {\n    json: {\n      id: $input.first().json.id,\n      payload: payload,\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        16
+      ],
+      "id": "95a3e7c3-20ef-4b4e-8d83-474034dd6b36",
+      "name": "image binary to base64"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5ce7a166-c3f7-49ad-b7d6-5b2aeff21181",
+              "name": "embeddingServerUrl",
+              "value": "http://192.168.31.247:11434/api/embeddings",
+              "type": "string"
+            },
+            {
+              "id": "b2fbfd34-c1aa-4063-b90f-3733f8124ea0",
+              "name": "ollamaBaseUrl",
+              "value": "http://192.168.31.201:1234",
+              "type": "string"
+            },
+            {
+              "id": "0aa2c376-431d-477e-a514-30d8f1d523f4",
+              "name": "numberOfJobs",
+              "value": 700,
+              "type": "number"
+            },
+            {
+              "id": "8d90877d-2047-4bfd-9a07-945c5b5b67f3",
+              "name": "modelName",
+              "value": "qwen/qwen3-vl-30b",
+              "type": "string"
+            },
+            {
+              "id": "b58414b4-2b72-4c4c-b080-9fd3b0b08400",
+              "name": "jsonFormat",
+              "value": "={\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"$id\": \"http://example.com/schemas/book-page-analysis.json\",\n  \"title\": \"Book Page Analysis Result\",\n  \"description\": \"JSON schema for analyzing a single page of a book, extracting text, image description, and book title.\",\n  \"type\": \"object\",\n  \n  \"properties\": {\n    \"bookTitle\": {\n      \"type\": \"string\",\n      \"description\": \"完整提取的图书封面名称。如果图片不是封面，则留空。\",\n      \"default\": \"\"\n    },\n    \"bookText\": {\n      \"type\": \"string\",\n      \"description\": \"完整提取的图片中的所有中文文本内容，不做任何修改和删减。如果图片中没有文本，则留空。\",\n      \"default\": \"\"\n    },\n    \"imageDescription\": {\n      \"type\": \"string\",\n      \"description\": \"对图片中除文本外的所有图形元素（如图表、插图等）的功能和内容的详细描述。如果图片没有图形元素，则留空。\",\n      \"default\": \"\"\n    }\n  },\n  \n  \"required\": [\n    \"bookTitle\",\n    \"bookText\",\n    \"imageDescription\"\n  ],\n  \n  \"additionalProperties\": false\n}\n",
+              "type": "string"
+            },
+            {
+              "id": "22af3719-c730-41f3-bbfe-bb7e889796ad",
+              "name": "engineName",
+              "value": "lmstudio",
+              "type": "string"
+            },
+            {
+              "id": "6ec9f961-e436-45d8-8841-4f1328e1c920",
+              "name": "systemPrompt",
+              "value": "这是一本图书的内页。请注意，本页的起始内容可能不是一个完整的句子。你的核心任务是：**完整提取图片中的文字**，不依赖于前一页的上下文。\n\n1. **文字内容提取**: 提取图片中所有的中文文本，不做任何修改和删减。将结果作为`bookText`字段的值。如果图片中没有文字内容，请将此字段留空。\n\n2. **图片内容描述**: 详细描述图片中除文本外的所有图形元素（如图表、插图等）的功能和内容。将结果作为 `imageDescription` 字段的值。如果图片没有图形，请将此字段留空。\n\n3. **图书名称识别：** 如果图片是图书封面，请提取其完整名称。如果不是封面，请将此字段留空。将结果作为 `bookTitle` 字段的值。\n\n4. 最终输出必须是以下严格的 **JSON** 格式：\n\n{\n  \"bookTitle\": \"(此处填写图书名称，如果没有内容，则留空)\",\n  \"bookText\": \"(此处填写提取的中文文本内容，如果没有内容，则留空)\",\n  \"imageDescription\": \"(此处填写图片描述，如果没有内容，则留空)\"\n}\n",
+              "type": "string"
+            },
+            {
+              "id": "26abe75f-0636-4d7f-8b3a-2a59e1379d06",
+              "name": "qdrantBaseUrl",
+              "value": "https://qdrant.weifu.heiyu.space/collections/Knova",
+              "type": "string"
+            },
+            {
+              "id": "1b3a52cf-583c-43d2-b687-95d50ca6a935",
+              "name": "responseFormat",
+              "value": "={\n    \"type\": \"json_schema\",\n    \"json_schema\": {\n      \"name\": \"book_page_analysis\",\n      \"strict\": true,\n      \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"bookTitle\": {\n            \"type\": \"string\",\n            \"description\": \"完整提取的图书封面名称。如果留空则为 ''。\"\n          },\n          \"bookText\": {\n            \"type\": \"string\",\n            \"description\": \"完整提取的图片中的所有中文文本内容。如果留空则为 ''。\"\n          },\n          \"imageDescription\": {\n            \"type\": \"string\",\n            \"description\": \"对图片中除文本外的所有图形元素的功能和内容的详细描述。如果留空则为 ''。\"\n          }\n        },\n        \"required\": [\n          \"bookTitle\",\n          \"bookText\",\n          \"imageDescription\"\n        ]\n      }\n    }\n  }",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        608,
+        -224
+      ],
+      "id": "55109bbb-7433-43fd-b9e9-4d3bf0658650",
+      "name": "Configurations"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Configurations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replace Me": {
+      "main": [
+        [
+          {
+            "node": "Process points one by one",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scroll Updated Points": {
+      "main": [
+        [
+          {
+            "node": "Split points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split points": {
+      "main": [
+        [
+          {
+            "node": "Process points one by one",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process points one by one": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get book image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construct point object with prompt text": {
+      "main": [
+        [
+          {
+            "node": "qwen3-vl completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "qwen3-vl completion": {
+      "main": [
+        [
+          {
+            "node": "Construct object with LLM response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construct object with LLM response": {
+      "main": [
+        [
+          {
+            "node": "Embedding response text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embedding response text": {
+      "main": [
+        [
+          {
+            "node": "Construct Qdrant Upsert object",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construct Qdrant Upsert object": {
+      "main": [
+        [
+          {
+            "node": "Upsert points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert points": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get book image": {
+      "main": [
+        [
+          {
+            "node": "image binary to base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "image binary to base64": {
+      "main": [
+        [
+          {
+            "node": "Construct point object with prompt text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configurations": {
+      "main": [
+        [
+          {
+            "node": "Scroll Updated Points",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6befc59d-7a93-462f-85ae-1c04b729583e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5ccdb66910dcc080eb68bdbcd615049ccc64fe0226bdf342573f2de64ae645cb"
+  },
+  "id": "BlvKJBvzf4xXiafW",
+  "tags": []
+}
