@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>概念星云图 - 文件上传与 D3.js</title>
+    <script src="https://d3js.org/d3.v4.min.js"></script> 
+    <style>
+        #graph-container {
+            width: 100%;
+            height: 600px; /* 调整高度以适应操作区 */
+            border: 1px solid #ddd;
+            margin-top: 15px;
+        }
+        .node { cursor: pointer; stroke: #fff; stroke-width: 1.5px; }
+        .link { stroke: #999; stroke-opacity: 0.6; stroke-width: 1px; }
+        .node-label { font: 10px sans-serif; pointer-events: none; text-shadow: 0 1px 0 #fff, 1px 0 0 #fff, 0 -1px 0 #fff, -1px 0 0 #fff; }
+        .controls { margin-bottom: 20px; padding: 10px; border: 1px solid #f0f0f0; background: #f9f9f9; }
+        button { padding: 8px 15px; margin-right: 10px; cursor: pointer; }
+        .status { margin-top: 10px; color: blue; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>概念星云图分析器</h1>
+    
+    <div class="controls">
+        <input type="file" id="fileInput" accept=".txt" />
+        
+        <button id="analyzeButton" disabled>发送文件并分析概念图谱</button>
+
+        <div class="status" id="statusMessage">请选择一个 TXT 文件。</div>
+    </div>
+
+    <div id="graph-container"></div>
+    
+    <script>
+        // =========================================================
+        // 核心配置
+        // =========================================================
+        const WEBHOOK_URL = 'https://n8n.weifu.heiyu.space/webhook-test/txt-upload'; // <-- 请替换为您的 n8n Webhook URL
+
+        const fileInput = document.getElementById('fileInput');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const statusMessage = document.getElementById('statusMessage');
+        let selectedFile = null;
+
+
+        /**
+         * 清洗和验证从 Webhook 返回的图谱数据，确保其符合 D3.js 要求。
+         * @param {object} rawData - 从 n8n Webhook 返回的原始 JSON 数据。
+         * @returns {object|null} - 清洗后的数据或 null（如果数据无效）。
+         */
+        function validateAndCleanData(rawData) {
+            if (!rawData || !Array.isArray(rawData.nodes) || !Array.isArray(rawData.links)) {
+                console.error("数据结构无效：缺少 nodes 或 links 数组。", rawData);
+                return null;
+            }
+
+            // 1. 创建一个快速查询节点ID的集合
+            const validNodeIds = new Set(rawData.nodes.map(node => node.id));
+
+            // 2. 清洗 Nodes：确保 ID 是字符串，且 Group 是数字
+            const cleanNodes = rawData.nodes.map(node => ({
+                id: String(node.id).trim(), // 确保是字符串并移除多余空格
+                group: isNaN(parseInt(node.group)) ? 1 : parseInt(node.group), // 确保 group 是数字
+                description: node.description || '无描述'
+            }));
+
+            // 3. 清洗 Links：检查 Source/Target 是否存在于 Node 列表中
+            const cleanLinks = rawData.links.filter(link => {
+                const sourceId = String(link.source).trim();
+                const targetId = String(link.target).trim();
+                
+                // 链接必须匹配存在的节点
+                if (!validNodeIds.has(sourceId) || !validNodeIds.has(targetId)) {
+                    // console.warn(`链接被移除：Source或Target不存在：${sourceId} -> ${targetId}`);
+                    return false;
+                }
+
+                // 确保 source/target 字段是字符串 ID，以便 D3.js 绑定
+                link.source = sourceId;
+                link.target = targetId;
+                link.value = isNaN(parseInt(link.value)) ? 1 : parseInt(link.value); // 确保 value 是数字
+
+                return true;
+            });
+
+            // 检查最终数据有效性
+            if (cleanNodes.length === 0) {
+                console.error("数据无效：没有有效节点可绘制。");
+                return null;
+            }
+
+            return {
+                nodes: cleanNodes,
+                links: cleanLinks
+            };
+        }
+
+        // =========================================================
+        // 步骤 1 & 2: 文件选择和发送逻辑
+        // =========================================================
+
+        // 监听文件选择变化
+        fileInput.addEventListener('change', (event) => {
+            selectedFile = event.target.files[0];
+            if (selectedFile) {
+                analyzeButton.disabled = false;
+                statusMessage.textContent = `文件已选择: ${selectedFile.name} (${(selectedFile.size / 1024).toFixed(2)} KB)。`;
+            } else {
+                analyzeButton.disabled = true;
+                statusMessage.textContent = '请选择一个 TXT 文件。';
+            }
+        });
+
+        // 监听分析按钮点击
+        analyzeButton.addEventListener('click', async () => {
+            if (!selectedFile) {
+                alert('请先选择文件！');
+                return;
+            }
+
+            statusMessage.textContent = '正在发送文件到 n8n Webhook，请等待 LLM 分析...';
+            analyzeButton.disabled = true; // 避免重复提交
+
+            try {
+                // 构建 FormData，以 'data' 为 Key 发送文件（与 n8n Webhook 配置一致）
+                const formData = new FormData();
+                formData.append('data', selectedFile, selectedFile.name); 
+
+                // 步骤 3: 使用 fetch() 发送 POST 请求
+                const response = await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    body: formData, // 发送 FormData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP 错误！状态码: ${response.status}`);
+                }
+
+                // 获取返回的 JSON 数据
+                const graphData = await response.json();
+                const finalGraphData = validateAndCleanData(graphData); // <--- 验证函数
+                
+                // 检查 n8n 返回的数据结构
+                if (finalGraphData && finalGraphData.nodes && finalGraphData.links) {
+                    statusMessage.textContent = '分析成功！正在渲染图谱...';
+                    drawForceGraph(finalGraphData); // 调用 D3.js 渲染函数
+                } else {
+                    // LLM 可能返回了错误信息或非预期结构
+                    throw new Error('LLM 返回的数据结构不正确。');
+                }
+
+            } catch (error) {
+                statusMessage.textContent = `分析失败: ${error.message}。请检查 Webhook URL 和 n8n 工作流日志。`;
+                console.error('Fetch Error:', error);
+            } finally {
+                analyzeButton.disabled = false;
+            }
+        });
+
+        // =========================================================
+        // 步骤 3: D3.js 渲染函数 (与您上次的代码相同，现封装为函数)
+        // =========================================================
+        function drawForceGraph(data) {
+            // 清除旧图表
+            d3.select("#graph-container").select("svg").remove();
+
+            const width = document.getElementById('graph-container').clientWidth;
+            const height = document.getElementById('graph-container').clientHeight;
+
+            const color = d3.scaleOrdinal(d3.schemeCategory20);
+
+            const svg = d3.select("#graph-container").append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            // ... (D3.js 力模拟设置，与上次代码相同)
+            const simulation = d3.forceSimulation()
+                .force("link", d3.forceLink().id(d => d.id).distance(100))
+                .force("charge", d3.forceManyBody().strength(-200))
+                .force("center", d3.forceCenter(width / 2, height / 2));
+
+            // 1. 渲染链接
+            const link = svg.append("g").attr("class", "links").selectAll("line")
+                .data(data.links).enter().append("line")
+                .attr("class", "link")
+                .style("stroke-width", d => Math.sqrt(d.value));
+
+            // 2. 渲染节点
+            const node = svg.append("g").attr("class", "nodes").selectAll("circle")
+                .data(data.nodes).enter().append("circle")
+                .attr("class", "node").attr("r", 8) 
+                .attr("fill", d => color(d.group))
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+
+            // 3. 渲染标签
+            const label = svg.append("g").attr("class", "labels").selectAll("text")
+                .data(data.nodes).enter().append("text")
+                .attr("class", "node-label")
+                .text(d => d.id);
+
+            node.append("title").text(d => d.id + ": " + d.description);
+
+            simulation.nodes(data.nodes).on("tick", ticked);
+            simulation.force("link").links(data.links);
+
+            // Ticker 函数
+            function ticked() {
+                link.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+                node.attr("cx", d => d.x).attr("cy", d => d.y);
+                label.attr("x", d => d.x + 10).attr("y", d => d.y + 3);
+            }
+
+            // 拖拽函数
+            function dragstarted(d) {
+                if (!d3.event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x; d.fy = d.y;
+            }
+
+            function dragged(d) {
+                d.fx = d3.event.x; d.fy = d3.event.y;
+            }
+
+            function dragended(d) {
+                if (!d3.event.active) simulation.alphaTarget(0);
+                d.fx = null; d.fy = null;
+            }
+        }
+    </script>
+</body>
+</html>
